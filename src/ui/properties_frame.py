@@ -1,415 +1,620 @@
-"""Панель свойств для редактирования параметров выбранного элемента."""
+"""Панель свойств объектов."""
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QLabel, QLineEdit, 
-    QSpinBox, QDoubleSpinBox, QCheckBox, QColorDialog, QPushButton,
-    QComboBox, QFrame, QScrollArea
+    QWidget, QFormLayout, QLineEdit, QDoubleSpinBox,
+    QComboBox, QCheckBox, QVBoxLayout, QLabel, QGroupBox, QFontComboBox,
+    QScrollArea, QPushButton, QColorDialog, QFileDialog, QHBoxLayout
 )
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from ..models.elements import CanvasElement
+from ..models import BaseObject, Canvas, TextObject
+from .text_editor_dialog import TextEditorDialog
 
 
-class PropertiesFrame(QWidget):
-    """Панель свойств для редактирования параметров элемента."""
+class PropertiesPanel(QWidget):
+    """Панель свойств выбранного объекта или канваса."""
     
-    # Сигнал об изменении свойства
-    property_changed = Signal(str, str, object)  # element_id, property_name, value
+    canvas_changed = Signal(Canvas)
+    object_changed = Signal(BaseObject)
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(250)
-        self._current_element = None
-        self._init_ui()
-    
-    def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        self._current_canvas: Canvas | None = None
+        self._current_object: BaseObject | None = None
+        self._blocking_signals = False
+        
+        # Основной layout с прокруткой
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Создаём скролл-область
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Виджет для содержимого
+        scroll_content = QWidget()
+        layout = QVBoxLayout(scroll_content)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         # Заголовок
-        title = QLabel("Свойства")
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(title)
+        self.title_label = QLabel("Свойства")
+        self.title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(self.title_label)
         
-        # Scroll area для свойств
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # Группа свойств канваса
+        self.canvas_group = QGroupBox("Канвас")
+        canvas_layout = QFormLayout(self.canvas_group)
         
-        self.content_widget = QWidget()
-        self.content_layout = QFormLayout(self.content_widget)
-        self.content_layout.setSpacing(6)
-        self.content_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        # Имя канваса
+        self.canvas_name_edit = QLineEdit()
+        self.canvas_name_edit.setPlaceholderText("Имя канваса")
+        self.canvas_name_edit.textChanged.connect(self._on_canvas_name_changed)
+        canvas_layout.addRow("Имя:", self.canvas_name_edit)
         
-        scroll.setWidget(self.content_widget)
-        layout.addWidget(scroll)
+        # Ширина канваса
+        self.canvas_width_spin = QDoubleSpinBox()
+        self.canvas_width_spin.setRange(100, 10000)
+        self.canvas_width_spin.setDecimals(0)
+        self.canvas_width_spin.setSuffix(" px")
+        self.canvas_width_spin.valueChanged.connect(self._on_canvas_size_changed)
+        canvas_layout.addRow("Ширина:", self.canvas_width_spin)
         
-        # Общие свойства
-        self._create_common_properties()
+        # Высота канваса
+        self.canvas_height_spin = QDoubleSpinBox()
+        self.canvas_height_spin.setRange(100, 10000)
+        self.canvas_height_spin.setDecimals(0)
+        self.canvas_height_spin.setSuffix(" px")
+        self.canvas_height_spin.valueChanged.connect(self._on_canvas_size_changed)
+        canvas_layout.addRow("Высота:", self.canvas_height_spin)
         
-        # Специфичные свойства (заполняются динамически)
-        self.specific_layout = QVBoxLayout()
-        self.content_layout.addRow(self.specific_layout)
+        # Цвет фона
+        self.canvas_color_edit = QLineEdit()
+        self.canvas_color_edit.setPlaceholderText("#FFFFFF")
+        self.canvas_color_edit.setReadOnly(True)
+        canvas_layout.addRow("Фон:", self.canvas_color_edit)
         
-        self._clear_specific_properties()
-    
-    def _create_common_properties(self):
-        """Создать общие свойства для всех элементов."""
-        # Название
-        self.name_input = QLineEdit()
-        self.name_input.textChanged.connect(self._on_name_changed)
-        self.content_layout.addRow("Название:", self.name_input)
+        self.canvas_color_btn = QPushButton("Выбрать цвет")
+        self.canvas_color_btn.clicked.connect(self._on_canvas_color_pick)
+        canvas_layout.addRow("", self.canvas_color_btn)
+        
+        layout.addWidget(self.canvas_group)
+        self.canvas_group.setVisible(False)
+        
+        # Группа свойств базового объекта
+        self.object_group = QGroupBox("Объект")
+        object_layout = QFormLayout(self.object_group)
+        
+        # Имя объекта
+        self.object_name_edit = QLineEdit()
+        self.object_name_edit.setPlaceholderText("Имя объекта")
+        self.object_name_edit.textChanged.connect(self._on_object_name_changed)
+        object_layout.addRow("Имя:", self.object_name_edit)
         
         # Позиция X
-        self.x_input = QDoubleSpinBox()
-        self.x_input.setRange(-10000, 10000)
-        self.x_input.setDecimals(1)
-        self.x_input.valueChanged.connect(self._on_x_changed)
-        self.content_layout.addRow("Позиция X:", self.x_input)
+        self.x_spin = QDoubleSpinBox()
+        self.x_spin.setRange(-10000, 10000)
+        self.x_spin.setDecimals(1)
+        self.x_spin.valueChanged.connect(self._on_position_changed)
+        object_layout.addRow("X:", self.x_spin)
         
         # Позиция Y
-        self.y_input = QDoubleSpinBox()
-        self.y_input.setRange(-10000, 10000)
-        self.y_input.setDecimals(1)
-        self.y_input.valueChanged.connect(self._on_y_changed)
-        self.content_layout.addRow("Позиция Y:", self.y_input)
+        self.y_spin = QDoubleSpinBox()
+        self.y_spin.setRange(-10000, 10000)
+        self.y_spin.setDecimals(1)
+        self.y_spin.valueChanged.connect(self._on_position_changed)
+        object_layout.addRow("Y:", self.y_spin)
         
         # Ширина
-        self.width_input = QDoubleSpinBox()
-        self.width_input.setRange(1, 10000)
-        self.width_input.setDecimals(1)
-        self.width_input.valueChanged.connect(self._on_width_changed)
-        self.content_layout.addRow("Ширина:", self.width_input)
+        self.width_spin = QDoubleSpinBox()
+        self.width_spin.setRange(1, 10000)
+        self.width_spin.setDecimals(1)
+        self.width_spin.valueChanged.connect(self._on_size_changed)
+        object_layout.addRow("Ширина:", self.width_spin)
         
         # Высота
-        self.height_input = QDoubleSpinBox()
-        self.height_input.setRange(1, 10000)
-        self.height_input.setDecimals(1)
-        self.height_input.valueChanged.connect(self._on_height_changed)
-        self.content_layout.addRow("Высота:", self.height_input)
+        self.height_spin = QDoubleSpinBox()
+        self.height_spin.setRange(1, 10000)
+        self.height_spin.setDecimals(1)
+        self.height_spin.valueChanged.connect(self._on_size_changed)
+        object_layout.addRow("Высота:", self.height_spin)
+        
+        # Цвет (для BaseObject)
+        self.color_edit = QLineEdit()
+        self.color_edit.setPlaceholderText("#CCCCCC")
+        self.color_edit.setReadOnly(True)
+        object_layout.addRow("Цвет:", self.color_edit)
+        
+        self.color_btn = QPushButton("Выбрать цвет")
+        self.color_btn.clicked.connect(self._on_color_pick)
+        object_layout.addRow("", self.color_btn)
         
         # Видимость
-        self.visible_input = QCheckBox()
-        self.visible_input.stateChanged.connect(self._on_visible_changed)
-        self.content_layout.addRow("Видимый:", self.visible_input)
+        self.visible_check = QCheckBox()
+        self.visible_check.stateChanged.connect(self._on_visibility_changed)
+        object_layout.addRow("Видимый:", self.visible_check)
         
-        # Заблокирован
-        self.locked_input = QCheckBox()
-        self.locked_input.stateChanged.connect(self._on_locked_changed)
-        self.content_layout.addRow("Заблокирован:", self.locked_input)
+        # Тип фигуры
+        self.shape_type_combo = QComboBox()
+        self.shape_type_combo.addItems(["Прямоугольник", "Эллипс", "Треугольник"])
+        self.shape_type_combo.currentIndexChanged.connect(self._on_shape_type_changed)
+        object_layout.addRow("Фигура:", self.shape_type_combo)
         
-        # Разделитель
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        self.content_layout.addRow(line)
-    
-    def _clear_specific_properties(self):
-        """Очистить специфичные свойства."""
-        while self.specific_layout.count():
-            item = self.specific_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-    
-    def _add_specific_property(self, label: str, widget: QWidget):
-        """Добавить специфичное свойство."""
-        self.specific_layout.addWidget(QLabel(label))
-        self.specific_layout.addWidget(widget)
-    
-    def set_element(self, element: "CanvasElement | None") -> None:
-        """Установить элемент для редактирования."""
-        self._current_element = element
+        layout.addWidget(self.object_group)
+        self.object_group.setVisible(False)
         
-        if not element:
-            self._disable_inputs()
-            return
+        # Группа свойств изображения
+        self.image_group = QGroupBox("Изображение")
+        image_layout = QFormLayout(self.image_group)
         
-        self._enable_inputs()
-        self._populate_properties()
-    
-    def _disable_inputs(self):
-        """Отключить все поля ввода."""
-        self.name_input.setEnabled(False)
-        self.x_input.setEnabled(False)
-        self.y_input.setEnabled(False)
-        self.width_input.setEnabled(False)
-        self.height_input.setEnabled(False)
-        self.visible_input.setEnabled(False)
-        self.locked_input.setEnabled(False)
-        self._clear_specific_properties()
-    
-    def _enable_inputs(self):
-        """Включить все поля ввода."""
-        self.name_input.setEnabled(True)
-        self.x_input.setEnabled(True)
-        self.y_input.setEnabled(True)
-        self.width_input.setEnabled(True)
-        self.height_input.setEnabled(True)
-        self.visible_input.setEnabled(True)
-        self.locked_input.setEnabled(True)
-    
-    def _populate_properties(self):
-        """Заполнить поля свойствами текущего элемента."""
-        if not self._current_element:
-            return
-        
-        element = self._current_element
-        
-        # Общие свойства
-        self.name_input.blockSignals(True)
-        self.name_input.setText(element.name)
-        self.name_input.blockSignals(False)
-        
-        self.x_input.blockSignals(True)
-        self.x_input.setValue(element.x)
-        self.x_input.blockSignals(False)
-        
-        self.y_input.blockSignals(True)
-        self.y_input.setValue(element.y)
-        self.y_input.blockSignals(False)
-        
-        self.width_input.blockSignals(True)
-        self.width_input.setValue(element.width)
-        self.width_input.blockSignals(False)
-        
-        self.height_input.blockSignals(True)
-        self.height_input.setValue(element.height)
-        self.height_input.blockSignals(False)
-        
-        self.visible_input.blockSignals(True)
-        self.visible_input.setChecked(element.visible)
-        self.visible_input.blockSignals(False)
-        
-        self.locked_input.blockSignals(True)
-        self.locked_input.setChecked(element.locked)
-        self.locked_input.blockSignals(False)
-        
-        # Специфичные свойства
-        self._populate_specific_properties()
-    
-    def _populate_specific_properties(self):
-        """Заполнить специфичные свойства в зависимости от типа элемента."""
-        self._clear_specific_properties()
-        
-        if not self._current_element:
-            return
-        
-        from ..models.elements import ImageElement, TextElement, ShapeElement
-        
-        element = self._current_element
-        
-        if isinstance(element, ImageElement):
-            self._create_image_properties(element)
-        elif isinstance(element, TextElement):
-            self._create_text_properties(element)
-        elif isinstance(element, ShapeElement):
-            self._create_shape_properties(element)
-    
-    def _create_image_properties(self, element: ImageElement):
-        """Создать свойства для изображения."""
         # Путь к изображению
-        self.image_path_input = QLineEdit(element.image_path)
-        self.image_path_input.textChanged.connect(self._on_image_path_changed)
-        self.specific_layout.addWidget(QLabel("Путь к файлу:"))
-        self.specific_layout.addWidget(self.image_path_input)
+        self.image_path_edit = QLineEdit()
+        self.image_path_edit.setPlaceholderText("Путь к изображению")
+        self.image_path_edit.setReadOnly(True)
+        image_layout.addRow("Путь:", self.image_path_edit)
         
-        # Прозрачность
-        self.opacity_input = QDoubleSpinBox()
-        self.opacity_input.setRange(0.0, 1.0)
-        self.opacity_input.setDecimals(2)
-        self.opacity_input.setSingleStep(0.1)
-        self.opacity_input.setValue(element.opacity)
-        self.opacity_input.valueChanged.connect(self._on_opacity_changed)
-        self.specific_layout.addWidget(QLabel("Прозрачность:"))
-        self.specific_layout.addWidget(self.opacity_input)
-    
-    def _create_text_properties(self, element: TextElement):
-        """Создать свойства для текста."""
-        # Текст
-        self.text_input = QLineEdit(element.text)
-        self.text_input.textChanged.connect(self._on_text_changed)
-        self.specific_layout.addWidget(QLabel("Текст:"))
-        self.specific_layout.addWidget(self.text_input)
+        self.image_browse_btn = QPushButton("Обзор...")
+        self.image_browse_btn.clicked.connect(self._on_image_browse)
+        image_layout.addRow("", self.image_browse_btn)
+        
+        # Заполнение изображением
+        self.image_fill_check = QCheckBox()
+        self.image_fill_check.stateChanged.connect(self._on_image_fill_changed)
+        image_layout.addRow("Заполнять:", self.image_fill_check)
+        
+        layout.addWidget(self.image_group)
+        self.image_group.setVisible(False)
+        
+        # Группа свойств текста
+        self.text_group = QGroupBox("Текст")
+        text_layout = QFormLayout(self.text_group)
+        
+        # Кнопка открытия редактора текста
+        self.edit_text_btn = QPushButton("Редактировать текст...")
+        self.edit_text_btn.clicked.connect(self._on_edit_text)
+        text_layout.addRow(self.edit_text_btn)
+        
+        # Предпросмотр текста
+        self.text_preview = QLineEdit()
+        self.text_preview.setReadOnly(True)
+        self.text_preview.setPlaceholderText("Предпросмотр")
+        text_layout.addRow("Предпросмотр:", self.text_preview)
+        
+        # Шрифт
+        self.font_combo = QFontComboBox()
+        self.font_combo.currentFontChanged.connect(self._on_font_changed)
+        text_layout.addRow("Шрифт:", self.font_combo)
         
         # Размер шрифта
-        self.font_size_input = QSpinBox()
-        self.font_size_input.setRange(8, 200)
-        self.font_size_input.setValue(element.font_size)
-        self.font_size_input.valueChanged.connect(self._on_font_size_changed)
-        self.specific_layout.addWidget(QLabel("Размер шрифта:"))
-        self.specific_layout.addWidget(self.font_size_input)
-        
-        # Цвет текста
-        self.color_btn = QPushButton()
-        self.color_btn.setText(element.color)
-        self.color_btn.setStyleSheet(f"background-color: {element.color}; color: white;")
-        self.color_btn.clicked.connect(self._on_color_clicked)
-        self.specific_layout.addWidget(QLabel("Цвет текста:"))
-        self.specific_layout.addWidget(self.color_btn)
+        self.font_size_spin = QDoubleSpinBox()
+        self.font_size_spin.setRange(1, 200)
+        self.font_size_spin.setDecimals(0)
+        self.font_size_spin.valueChanged.connect(self._on_font_size_changed)
+        text_layout.addRow("Размер:", self.font_size_spin)
         
         # Жирный
-        self.bold_input = QCheckBox()
-        self.bold_input.setChecked(element.bold)
-        self.bold_input.stateChanged.connect(self._on_bold_changed)
-        self.specific_layout.addWidget(QLabel("Жирный:"))
-        self.specific_layout.addWidget(self.bold_input)
+        self.bold_check = QCheckBox()
+        self.bold_check.stateChanged.connect(self._on_font_style_changed)
+        text_layout.addRow("Жирный:", self.bold_check)
         
         # Курсив
-        self.italic_input = QCheckBox()
-        self.italic_input.setChecked(element.italic)
-        self.italic_input.stateChanged.connect(self._on_italic_changed)
-        self.specific_layout.addWidget(QLabel("Курсив:"))
-        self.specific_layout.addWidget(self.italic_input)
-    
-    def _create_shape_properties(self, element: ShapeElement):
-        """Создать свойства для фигуры."""
-        # Тип фигуры
-        self.shape_type_input = QComboBox()
-        self.shape_type_input.addItems(["rectangle", "ellipse", "line"])
-        self.shape_type_input.setCurrentText(element.shape_type)
-        self.shape_type_input.currentTextChanged.connect(self._on_shape_type_changed)
-        self.specific_layout.addWidget(QLabel("Тип фигуры:"))
-        self.specific_layout.addWidget(self.shape_type_input)
+        self.italic_check = QCheckBox()
+        self.italic_check.stateChanged.connect(self._on_font_style_changed)
+        text_layout.addRow("Курсив:", self.italic_check)
         
-        # Цвет заполнения
-        self.fill_color_btn = QPushButton()
-        self.fill_color_btn.setText(element.fill_color)
-        self.fill_color_btn.setStyleSheet(f"background-color: {element.fill_color};")
-        self.fill_color_btn.clicked.connect(lambda: self._on_fill_color_clicked())
-        self.specific_layout.addWidget(QLabel("Цвет заполнения:"))
-        self.specific_layout.addWidget(self.fill_color_btn)
+        # Подчёркнутый
+        self.underline_check = QCheckBox()
+        self.underline_check.stateChanged.connect(self._on_font_style_changed)
+        text_layout.addRow("Подчёркнутый:", self.underline_check)
+        
+        # Цвет текста
+        self.text_color_edit = QLineEdit()
+        self.text_color_edit.setPlaceholderText("#000000")
+        self.text_color_edit.setReadOnly(True)
+        text_layout.addRow("Цвет текста:", self.text_color_edit)
+        
+        self.text_color_btn = QPushButton("Выбрать цвет")
+        self.text_color_btn.clicked.connect(self._on_text_color_pick)
+        text_layout.addRow("", self.text_color_btn)
+        
+        # Выравнивание по горизонтали
+        self.text_align_h_combo = QComboBox()
+        self.text_align_h_combo.addItems(["Слева", "По центру", "Справа"])
+        self.text_align_h_combo.currentIndexChanged.connect(self._on_text_align_changed)
+        text_layout.addRow("Выравнивание (гор.):", self.text_align_h_combo)
+        
+        # Выравнивание по вертикали
+        self.text_align_v_combo = QComboBox()
+        self.text_align_v_combo.addItems(["Сверху", "По центру", "Снизу"])
+        self.text_align_v_combo.currentIndexChanged.connect(self._on_text_align_changed)
+        text_layout.addRow("Выравнивание (верт.):", self.text_align_v_combo)
+        
+        layout.addWidget(self.text_group)
+        self.text_group.setVisible(False)
+        
+        # Группа обводки
+        self.stroke_group = QGroupBox("Обводка")
+        stroke_layout = QFormLayout(self.stroke_group)
+        
+        # Включить обводку
+        self.stroke_enabled_check = QCheckBox()
+        self.stroke_enabled_check.stateChanged.connect(self._on_stroke_changed)
+        stroke_layout.addRow("Включена:", self.stroke_enabled_check)
         
         # Цвет обводки
-        self.stroke_color_btn = QPushButton()
-        self.stroke_color_btn.setText(element.stroke_color)
-        self.stroke_color_btn.setStyleSheet(f"background-color: {element.stroke_color}; color: white;" if element.stroke_color == "#000000" else "")
-        self.stroke_color_btn.clicked.connect(lambda: self._on_stroke_color_clicked())
-        self.specific_layout.addWidget(QLabel("Цвет обводки:"))
-        self.specific_layout.addWidget(self.stroke_color_btn)
+        self.stroke_color_edit = QLineEdit()
+        self.stroke_color_edit.setPlaceholderText("#000000")
+        self.stroke_color_edit.setReadOnly(True)
+        stroke_layout.addRow("Цвет:", self.stroke_color_edit)
+        
+        self.stroke_color_btn = QPushButton("Выбрать цвет")
+        self.stroke_color_btn.clicked.connect(self._on_stroke_color_pick)
+        stroke_layout.addRow("", self.stroke_color_btn)
         
         # Толщина обводки
-        self.stroke_width_input = QSpinBox()
-        self.stroke_width_input.setRange(0, 50)
-        self.stroke_width_input.setValue(element.stroke_width)
-        self.stroke_width_input.valueChanged.connect(self._on_stroke_width_changed)
-        self.specific_layout.addWidget(QLabel("Толщина обводки:"))
-        self.specific_layout.addWidget(self.stroke_width_input)
+        self.stroke_width_spin = QDoubleSpinBox()
+        self.stroke_width_spin.setRange(0, 20)
+        self.stroke_width_spin.setDecimals(1)
+        self.stroke_width_spin.valueChanged.connect(self._on_stroke_width_changed)
+        stroke_layout.addRow("Толщина:", self.stroke_width_spin)
         
-        # Прозрачность
-        self.opacity_input = QDoubleSpinBox()
-        self.opacity_input.setRange(0.0, 1.0)
-        self.opacity_input.setDecimals(2)
-        self.opacity_input.setSingleStep(0.1)
-        self.opacity_input.setValue(element.opacity)
-        self.opacity_input.valueChanged.connect(self._on_opacity_changed)
-        self.specific_layout.addWidget(QLabel("Прозрачность:"))
-        self.specific_layout.addWidget(self.opacity_input)
-    
-    # Обработчики общих свойств
-    def _on_name_changed(self, text: str):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "name", text)
-    
-    def _on_x_changed(self, value: float):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "x", value)
-    
-    def _on_y_changed(self, value: float):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "y", value)
-    
-    def _on_width_changed(self, value: float):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "width", value)
-    
-    def _on_height_changed(self, value: float):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "height", value)
-    
-    def _on_visible_changed(self, state: int):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "visible", state == Qt.CheckState.Checked.value)
-    
-    def _on_locked_changed(self, state: int):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "locked", state == Qt.CheckState.Checked.value)
-    
-    # Обработчики специфичных свойств
-    def _on_image_path_changed(self, text: str):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "image_path", text)
-    
-    def _on_opacity_changed(self, value: float):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "opacity", value)
-    
-    def _on_text_changed(self, text: str):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "text", text)
-    
-    def _on_font_size_changed(self, value: int):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "font_size", value)
-    
-    def _on_color_clicked(self):
-        if self._current_element:
-            color = QColorDialog.getColor(QColor(self._current_element.color), self)
-            if color.isValid():
-                self._current_element.color = color.name()
-                self.color_btn.setText(color.name())
-                self.color_btn.setStyleSheet(f"background-color: {color.name()}; color: white;")
-                self.property_changed.emit(self._current_element.id, "color", color.name())
-    
-    def _on_bold_changed(self, state: int):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "bold", state == Qt.CheckState.Checked.value)
-    
-    def _on_italic_changed(self, state: int):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "italic", state == Qt.CheckState.Checked.value)
-    
-    def _on_shape_type_changed(self, value: str):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "shape_type", value)
-    
-    def _on_fill_color_clicked(self):
-        if self._current_element:
-            color = QColorDialog.getColor(QColor(self._current_element.fill_color), self)
-            if color.isValid():
-                self._current_element.fill_color = color.name()
-                self.fill_color_btn.setText(color.name())
-                self.fill_color_btn.setStyleSheet(f"background-color: {color.name()};")
-                self.property_changed.emit(self._current_element.id, "fill_color", color.name())
-    
-    def _on_stroke_color_clicked(self):
-        if self._current_element:
-            color = QColorDialog.getColor(QColor(self._current_element.stroke_color), self)
-            if color.isValid():
-                self._current_element.stroke_color = color.name()
-                self.stroke_color_btn.setText(color.name())
-                self.stroke_color_btn.setStyleSheet(f"background-color: {color.name()}; color: white;" if color.name() == "#000000" else "")
-                self.property_changed.emit(self._current_element.id, "stroke_color", color.name())
-    
-    def _on_stroke_width_changed(self, value: int):
-        if self._current_element:
-            self.property_changed.emit(self._current_element.id, "stroke_width", value)
-    
-    def refresh(self):
-        """Обновить отображение свойств."""
-        if self._current_element:
-            self._populate_properties()
-    
-    def update_position_fields(self, x: float, y: float):
-        """Обновить поля позиции без полного рефреша."""
-        self.x_input.blockSignals(True)
-        self.x_input.setValue(x)
-        self.x_input.blockSignals(False)
+        layout.addWidget(self.stroke_group)
+        self.stroke_group.setVisible(False)
         
-        self.y_input.blockSignals(True)
-        self.y_input.setValue(y)
-        self.y_input.blockSignals(False)
+        layout.addStretch()
+        
+        # Устанавливаем контент в скролл
+        scroll_area.setWidget(scroll_content)
+        main_layout.addWidget(scroll_area)
+    
+    def update_object_position(self, obj: BaseObject):
+        """Обновляет только позицию объекта (для реального времени)."""
+        if self._current_object and self._current_object.id == obj.id:
+            self._blocking_signals = True
+            self.x_spin.setValue(obj.x)
+            self.y_spin.setValue(obj.y)
+            self._blocking_signals = False
+    
+    def set_canvas(self, canvas: Canvas | None):
+        """Устанавливает текущий канвас для редактирования."""
+        self._current_canvas = canvas
+        self._current_object = None
+        
+        if canvas is None:
+            self._block_canvas_signals(True)
+            self.canvas_name_edit.clear()
+            self.canvas_width_spin.setValue(0)
+            self.canvas_height_spin.setValue(0)
+            self.canvas_color_edit.clear()
+            self._block_canvas_signals(False)
+            self.canvas_group.setVisible(False)
+            self.object_group.setVisible(False)
+            self.text_group.setVisible(False)
+            self.stroke_group.setVisible(False)
+            self.image_group.setVisible(False)
+            self.title_label.setText("Свойства")
+            return
+        
+        self._block_canvas_signals(True)
+        self.canvas_name_edit.setText(canvas.name)
+        self.canvas_width_spin.setValue(canvas.width)
+        self.canvas_height_spin.setValue(canvas.height)
+        self.canvas_color_edit.setText(canvas.background_color)
+        self._block_canvas_signals(False)
+        
+        self.canvas_group.setVisible(True)
+        self.object_group.setVisible(False)
+        self.text_group.setVisible(False)
+        self.stroke_group.setVisible(False)
+        self.image_group.setVisible(False)
+        self.title_label.setText(f"Канвас: {canvas.name}")
+    
+    def set_object(self, obj: BaseObject | None):
+        """Устанавливает текущий объект для редактирования."""
+        self._current_object = obj
+        
+        if obj is None:
+            self._block_object_signals(True)
+            self._clear_object_fields()
+            self._block_object_signals(False)
+            self.object_group.setVisible(False)
+            self.text_group.setVisible(False)
+            self.stroke_group.setVisible(False)
+            self.image_group.setVisible(False)
+            if self._current_canvas:
+                self.title_label.setText(f"Канвас: {self._current_canvas.name}")
+            else:
+                self.title_label.setText("Свойства")
+            return
+        
+        self._block_object_signals(True)
+        
+        # Общие поля
+        self.object_name_edit.setText(obj.name)
+        self.x_spin.setValue(obj.x)
+        self.y_spin.setValue(obj.y)
+        self.width_spin.setValue(obj.width)
+        self.height_spin.setValue(obj.height)
+        self.color_edit.setText(obj.color)
+        self.visible_check.setChecked(obj.visible)
+        
+        # Тип фигуры
+        shape_index = {"rect": 0, "ellipse": 1, "triangle": 2}.get(obj.shape_type, 0)
+        self.shape_type_combo.setCurrentIndex(shape_index)
+        
+        # Изображение
+        self.image_path_edit.setText(obj.image_path or "")
+        self.image_fill_check.setChecked(obj.image_fill)
+        
+        self.object_group.setVisible(True)
+        self.image_group.setVisible(True)
+        
+        # Обводка (для всех объектов)
+        self.stroke_enabled_check.setChecked(obj.stroke_enabled)
+        self.stroke_color_edit.setText(obj.stroke_color)
+        self.stroke_width_spin.setValue(obj.stroke_width)
+        self.stroke_group.setVisible(True)
+        
+        # Поля текста
+        if isinstance(obj, TextObject):
+            self.text_preview.setText(obj.text[:50] + "..." if len(obj.text) > 50 else obj.text)
+            self.font_combo.setCurrentFont(QFont(obj.font_family))
+            self.font_size_spin.setValue(obj.font_size)
+            self.bold_check.setChecked(obj.font_bold)
+            self.italic_check.setChecked(obj.font_italic)
+            self.underline_check.setChecked(obj.font_underline)
+            self.text_color_edit.setText(obj.text_color)
+            
+            # Выравнивание
+            align_h_map = {"left": 0, "center": 1, "right": 2}
+            align_v_map = {"top": 0, "center": 1, "bottom": 2}
+            self.text_align_h_combo.setCurrentIndex(align_h_map.get(obj.text_align_h, 0))
+            self.text_align_v_combo.setCurrentIndex(align_v_map.get(obj.text_align_v, 0))
+            
+            self.text_group.setVisible(True)
+        else:
+            self.text_group.setVisible(False)
+        
+        self._block_object_signals(False)
+        self.title_label.setText(f"Объект: {obj.name}")
+
+    def _clear_object_fields(self):
+        """Очищает поля объекта."""
+        self.object_name_edit.clear()
+        self.x_spin.setValue(0)
+        self.y_spin.setValue(0)
+        self.width_spin.setValue(0)
+        self.height_spin.setValue(0)
+        self.color_edit.clear()
+        self.visible_check.setChecked(False)
+        self.shape_type_combo.setCurrentIndex(0)
+
+        self.text_preview.clear()
+        self.font_size_spin.setValue(16)
+        self.text_color_edit.clear()
+        self.bold_check.setChecked(False)
+        self.italic_check.setChecked(False)
+        self.underline_check.setChecked(False)
+
+        self.stroke_enabled_check.setChecked(False)
+        self.stroke_color_edit.clear()
+        self.stroke_width_spin.setValue(1)
+
+        self.image_path_edit.clear()
+        self.image_fill_check.setChecked(False)
+
+        self.text_align_h_combo.setCurrentIndex(0)
+        self.text_align_v_combo.setCurrentIndex(0)
+
+    def _block_canvas_signals(self, block: bool):
+        """Блокирует сигналы канваса."""
+        self._blocking_signals = block
+        self.canvas_name_edit.blockSignals(block)
+        self.canvas_width_spin.blockSignals(block)
+        self.canvas_height_spin.blockSignals(block)
+
+    def _block_object_signals(self, block: bool):
+        """Блокирует сигналы объекта."""
+        self._blocking_signals = block
+        self.object_name_edit.blockSignals(block)
+        self.x_spin.blockSignals(block)
+        self.y_spin.blockSignals(block)
+        self.width_spin.blockSignals(block)
+        self.height_spin.blockSignals(block)
+        self.visible_check.blockSignals(block)
+        self.shape_type_combo.blockSignals(block)
+
+        self.text_preview.blockSignals(block)
+        self.font_combo.blockSignals(block)
+        self.font_size_spin.blockSignals(block)
+        self.bold_check.blockSignals(block)
+        self.italic_check.blockSignals(block)
+        self.underline_check.blockSignals(block)
+
+        self.stroke_enabled_check.blockSignals(block)
+        self.stroke_width_spin.blockSignals(block)
+
+        self.image_path_edit.blockSignals(block)
+        self.image_fill_check.blockSignals(block)
+
+        self.text_align_h_combo.blockSignals(block)
+        self.text_align_v_combo.blockSignals(block)
+
+    def _emit_canvas_changed(self):
+        """Испускает сигнал об изменении канваса."""
+        if not self._blocking_signals and self._current_canvas:
+            self.canvas_changed.emit(self._current_canvas)
+
+    def _emit_object_changed(self):
+        """Испускает сигнал об изменении объекта."""
+        if not self._blocking_signals and self._current_object:
+            self.object_changed.emit(self._current_object)
+
+    # Обработчики канваса
+    def _on_canvas_name_changed(self, text: str):
+        """Обработчик изменения имени канваса."""
+        if self._current_canvas:
+            self._current_canvas.name = text
+            self._emit_canvas_changed()
+
+    def _on_canvas_size_changed(self):
+        """Обработчик изменения размера канваса."""
+        if self._current_canvas:
+            self._current_canvas.width = self.canvas_width_spin.value()
+            self._current_canvas.height = self.canvas_height_spin.value()
+            self._emit_canvas_changed()
+
+    def _on_canvas_color_pick(self):
+        """Открывает диалог выбора цвета фона."""
+        if self._current_canvas:
+            current_color = QColor(self._current_canvas.background_color)
+            new_color = QColorDialog.getColor(current_color, self, "Выберите цвет фона")
+            if new_color.isValid():
+                self._current_canvas.background_color = new_color.name()
+                self.canvas_color_edit.setText(new_color.name())
+                self._emit_canvas_changed()
+
+    # Обработчики объекта
+    def _on_object_name_changed(self, text: str):
+        """Обработчик изменения имени объекта."""
+        if self._current_object:
+            self._current_object.name = text
+            self._emit_object_changed()
+
+    def _on_position_changed(self):
+        """Обработчик изменения позиции."""
+        if self._current_object:
+            self._current_object.x = self.x_spin.value()
+            self._current_object.y = self.y_spin.value()
+            self._emit_object_changed()
+
+    def _on_size_changed(self):
+        """Обработчик изменения размера."""
+        if self._current_object:
+            self._current_object.width = self.width_spin.value()
+            self._current_object.height = self.height_spin.value()
+            self._emit_object_changed()
+
+    def _on_visibility_changed(self, state: int):
+        """Обработчик изменения видимости."""
+        if self._current_object:
+            self._current_object.visible = state == 2  # Qt.Checked
+            self._emit_object_changed()
+
+    # Обработчики цвета
+    def _on_color_pick(self):
+        """Открывает диалог выбора цвета объекта."""
+        if self._current_object:
+            current_color = QColor(self._current_object.color)
+            new_color = QColorDialog.getColor(current_color, self, "Выберите цвет")
+            if new_color.isValid():
+                self._current_object.color = new_color.name()
+                self.color_edit.setText(new_color.name())
+                self._emit_object_changed()
+
+    def _on_text_color_pick(self):
+        """Открывает диалог выбора цвета текста."""
+        if isinstance(self._current_object, TextObject):
+            current_color = QColor(self._current_object.text_color)
+            new_color = QColorDialog.getColor(current_color, self, "Выберите цвет текста")
+            if new_color.isValid():
+                self._current_object.text_color = new_color.name()
+                self.text_color_edit.setText(new_color.name())
+                self._emit_object_changed()
+
+    def _on_stroke_color_pick(self):
+        """Открывает диалог выбора цвета обводки."""
+        if self._current_object:
+            current_color = QColor(self._current_object.stroke_color)
+            new_color = QColorDialog.getColor(current_color, self, "Выберите цвет обводки")
+            if new_color.isValid():
+                self._current_object.stroke_color = new_color.name()
+                self.stroke_color_edit.setText(new_color.name())
+                self._emit_object_changed()
+
+    # Обработчики текста
+    def _on_edit_text(self):
+        """Открывает диалог редактирования текста."""
+        if isinstance(self._current_object, TextObject):
+            dialog = TextEditorDialog(self._current_object, self)
+            if dialog.exec():
+                # Обновляем предпросмотр
+                self.text_preview.setText(
+                    self._current_object.text[:50] + "..." 
+                    if len(self._current_object.text) > 50 
+                    else self._current_object.text
+                )
+                self._emit_object_changed()
+
+    def _on_font_changed(self, font):
+        """Обработчик изменения шрифта."""
+        if isinstance(self._current_object, TextObject):
+            self._current_object.font_family = font.family()
+            self._emit_object_changed()
+
+    def _on_font_size_changed(self):
+        """Обработчик изменения размера шрифта."""
+        if isinstance(self._current_object, TextObject):
+            self._current_object.font_size = int(self.font_size_spin.value())
+            self._emit_object_changed()
+
+    def _on_font_style_changed(self):
+        """Обработчик изменения стиля шрифта."""
+        if isinstance(self._current_object, TextObject):
+            self._current_object.font_bold = self.bold_check.isChecked()
+            self._current_object.font_italic = self.italic_check.isChecked()
+            self._current_object.font_underline = self.underline_check.isChecked()
+            self._emit_object_changed()
+
+    def _on_text_align_changed(self):
+        """Обработчик изменения выравнивания текста."""
+        if isinstance(self._current_object, TextObject):
+            align_h_map = {0: "left", 1: "center", 2: "right"}
+            align_v_map = {0: "top", 1: "center", 2: "bottom"}
+            self._current_object.text_align_h = align_h_map.get(self.text_align_h_combo.currentIndex(), "left")
+            self._current_object.text_align_v = align_v_map.get(self.text_align_v_combo.currentIndex(), "top")
+            self._emit_object_changed()
+
+    # Обработчики обводки
+    def _on_stroke_changed(self):
+        """Обработчик изменения обводки."""
+        if self._current_object:
+            self._current_object.stroke_enabled = self.stroke_enabled_check.isChecked()
+            self._emit_object_changed()
+
+    def _on_stroke_width_changed(self):
+        """Обработчик изменения толщины обводки."""
+        if self._current_object:
+            self._current_object.stroke_width = self.stroke_width_spin.value()
+            self._emit_object_changed()
+
+    # Обработчики фигуры
+    def _on_shape_type_changed(self, index: int):
+        """Обработчик изменения типа фигуры."""
+        if self._current_object:
+            shape_types = {0: "rect", 1: "ellipse", 2: "triangle"}
+            self._current_object.shape_type = shape_types.get(index, "rect")
+            self._emit_object_changed()
+
+    # Обработчики изображения
+    def _on_image_browse(self):
+        """Открывает диалог выбора изображения."""
+        if self._current_object:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Выберите изображение",
+                "",
+                "Images (*.png *.jpg *.jpeg *.bmp *.gif)"
+            )
+            if file_path:
+                self._current_object.image_path = file_path
+                self.image_path_edit.setText(file_path)
+                self._emit_object_changed()
+
+    def _on_image_fill_changed(self, state: int):
+        """Обработчик изменения заполнения изображением."""
+        if self._current_object:
+            self._current_object.image_fill = state == 2  # Qt.Checked
+            self._emit_object_changed()
