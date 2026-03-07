@@ -532,7 +532,7 @@ class _DropLineDelegate(QStyledItemDelegate):
                 if g_idx is not None:
                     idx_text = str(g_idx)
                     painter.save()
-                    badge_color = QColor(140, 140, 150)
+                    badge_color = QColor(190, 190, 190)
                     small_font = painter.font()
                     small_font.setPointSizeF(max(6.5, small_font.pointSizeF() - 2))
                     painter.setFont(small_font)
@@ -543,7 +543,7 @@ class _DropLineDelegate(QStyledItemDelegate):
                     badge_y = option.rect.top() + (option.rect.height() - badge_h) // 2
                     from PySide6.QtCore import QRect
                     badge_rect = QRect(badge_x, badge_y, badge_w, badge_h)
-                    painter.setBrush(QColor(210, 210, 218, 160))
+                    painter.setBrush(QColor(30, 30, 30, 255))
                     painter.setPen(Qt.PenStyle.NoPen)
                     painter.drawRoundedRect(badge_rect, 3, 3)
                     painter.setPen(badge_color)
