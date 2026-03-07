@@ -330,40 +330,114 @@ class ElementsTree(QTreeWidget):
 
     def dragMoveEvent(self, event):
         """Обработка перетаскивания."""
+        # Определяем элемент над которым происходит перетаскивание
+        target_item = self.itemAt(event.position().toPoint())
+        
+        # Если перетаскиваем объект
+        if self._dragged_item and isinstance(self._dragged_item, ObjectItem):
+            dragged_obj = self._dragged_item.data(0, 1)
+            dragged_canvas_id = self.get_canvas_id_for_object(dragged_obj)
+            
+            # Запрещаем перетаскивание на другой канвас
+            if target_item:
+                target_canvas_id = self.get_canvas_id_for_item(target_item)
+                if target_canvas_id and target_canvas_id != dragged_canvas_id:
+                    # Разные канвасы - запрещаем
+                    event.setDropAction(Qt.DropAction.IgnoreAction)
+                    event.ignore()
+                    return
+            
+            # Запрещаем перетаскивание на корневой уровень канваса (не на объект)
+            if target_item and isinstance(target_item, QTreeWidgetItem):
+                # Проверяем, это канвас или объект
+                if target_item.data(0, 1) and isinstance(target_item.data(0, 1), Canvas):
+                    # Пытаемся перетащить на канвас напрямую - запрещаем
+                    event.setDropAction(Qt.DropAction.IgnoreAction)
+                    event.ignore()
+                    return
+        
         # Разрешаем стандартное перетаскивание
         super().dragMoveEvent(event)
 
     def dropEvent(self, event):
         """Обработка отпускания перетаскиваемого объекта."""
+        # Проверяем допустимость перетаскивания
+        if self._dragged_item and isinstance(self._dragged_item, ObjectItem):
+            dragged_obj = self._dragged_item.data(0, 1)
+            dragged_canvas_id = self.get_canvas_id_for_object(dragged_obj)
+            
+            # Определяем целевой элемент
+            target_item = self.itemAt(event.position().toPoint())
+            
+            # Запрещаем перетаскивание на другой канвас
+            if target_item:
+                target_canvas_id = self.get_canvas_id_for_item(target_item)
+                if target_canvas_id and target_canvas_id != dragged_canvas_id:
+                    # Разные канвасы - отменяем
+                    event.ignore()
+                    self._dragged_item = None
+                    return
+            
+            # Запрещаем перетаскивание на корневой уровень (на канвас)
+            if target_item and isinstance(target_item, QTreeWidgetItem):
+                if target_item.data(0, 1) and isinstance(target_item.data(0, 1), Canvas):
+                    # Пытаемся перетащить на канвас напрямую - отменяем
+                    event.ignore()
+                    self._dragged_item = None
+                    return
+        
         # Сначала даём Qt переместить элемент в дереве
         super().dropEvent(event)
-        
+
         # Теперь обновляем данные модели
         if self._dragged_item:
             dragged_obj = self._dragged_item.data(0, 1)
-            
+
             # Определяем нового родителя
             parent_item = self._dragged_item.parent()
             new_parent_obj = None
-            
+
             if parent_item and isinstance(parent_item, ObjectItem):
                 # Родитель - другой объект
                 new_parent_obj = parent_item.obj
             elif parent_item and isinstance(parent_item, QTreeWidgetItem):
-                # Родитель - канвас (корневой уровень)
+                # Родитель - канвас (корневой уровень) - не должно произойти из-за проверок выше
                 new_parent_obj = None
-            
+
             # Обновляем parent_id и связь _parent
             if isinstance(dragged_obj, BaseObject):
                 canvas_id = self.get_canvas_id_for_object(dragged_obj)
                 if canvas_id:
                     # Перемещаем объект к новому родителю (с пересчётом координат)
                     self.move_object(canvas_id, dragged_obj, new_parent_obj.id if new_parent_obj else None)
-                    
+
                     # Испускаем сигнал об изменении родителя
                     self.object_parent_changed.emit(dragged_obj)
-        
+
         self._dragged_item = None
+
+    def get_canvas_id_for_item(self, item: QTreeWidgetItem) -> str | None:
+        """Получает ID канваса для элемента дерева."""
+        if not item:
+            return None
+        
+        # Если это ObjectItem, получаем canvas_id из данных
+        if isinstance(item, ObjectItem):
+            obj = item.data(0, 1)
+            if obj:
+                return self.get_canvas_id_for_object(obj)
+        
+        # Если это элемент канваса
+        data = item.data(0, 1)
+        if data and isinstance(data, Canvas):
+            return data.id
+        
+        # Иначе ищем родителя канваса
+        parent = item.parent()
+        if parent:
+            return self.get_canvas_id_for_item(parent)
+        
+        return None
 
     def _is_descendant(self, potential_child: BaseObject, potential_parent: BaseObject) -> bool:
         """Проверяет является ли potential_child потомком potential_parent."""
@@ -407,23 +481,23 @@ class ElementsPanel(QWidget):
     def add_canvas(self, canvas: Canvas):
         """Добавляет канвас в панель."""
         self.tree.add_canvas(canvas)
-    
+
     def remove_canvas(self, canvas_id: str):
         """Удаляет канвас из панели."""
         self.tree.remove_canvas(canvas_id)
-    
+
     def add_object(self, canvas_id: str, obj: BaseObject):
         """Добавляет объект в панель."""
         self.tree.add_object(canvas_id, obj)
-    
+
     def remove_object(self, canvas_id: str, obj: BaseObject):
         """Удаляет объект из панели."""
         self.tree.remove_object(canvas_id, obj)
-    
+
     def move_object(self, canvas_id: str, obj: BaseObject, parent_id: str | None):
         """Перемещает объект под нового родителя."""
         self.tree.move_object(canvas_id, obj, parent_id)
-    
+
     def update_object_name(self, canvas_id: str, obj: BaseObject):
         """Обновляет имя объекта в панели."""
         self.tree.update_object_name(canvas_id, obj)
@@ -431,3 +505,7 @@ class ElementsPanel(QWidget):
     def update_object_lock(self, canvas_id: str, obj: BaseObject):
         """Обновляет иконку замка объекта в панели."""
         self.tree.update_object_lock(canvas_id, obj)
+
+    def update_canvas_name(self, canvas: Canvas):
+        """Обновляет имя канваса в панели."""
+        self.tree.update_canvas_name(canvas)

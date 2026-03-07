@@ -14,15 +14,17 @@ from .text_editor_dialog import TextEditorDialog
 
 class PropertiesPanel(QWidget):
     """Панель свойств выбранного объекта или канваса."""
-    
+
     canvas_changed = Signal(Canvas)
     object_changed = Signal(BaseObject)
-    
+    request_objects_list = Signal()  # Сигнал для запроса списка объектов
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._current_canvas: Canvas | None = None
         self._current_object: BaseObject | None = None
         self._blocking_signals = False
+        self._objects_list: list[BaseObject] = []  # Список объектов для выбора родителя
         
         # Основной layout с прокруткой
         main_layout = QVBoxLayout(self)
@@ -126,7 +128,13 @@ class PropertiesPanel(QWidget):
         self.global_coords_label = QLabel("")
         self.global_coords_label.setStyleSheet("color: #666; font-size: 11px;")
         object_layout.addRow("Глобальные:", self.global_coords_label)
-        
+
+        # Родитель объекта
+        self.parent_combo = QComboBox()
+        self.parent_combo.addItem("Нет", None)
+        self.parent_combo.currentIndexChanged.connect(self._on_parent_changed)
+        object_layout.addRow("Родитель:", self.parent_combo)
+
         # Ширина
         self.width_spin = QDoubleSpinBox()
         self.width_spin.setRange(1, 10000)
@@ -337,7 +345,7 @@ class PropertiesPanel(QWidget):
     def set_object(self, obj: BaseObject | None):
         """Устанавливает текущий объект для редактирования."""
         self._current_object = obj
-        
+
         if obj is None:
             self._block_object_signals(True)
             self._clear_object_fields()
@@ -351,6 +359,9 @@ class PropertiesPanel(QWidget):
             else:
                 self.title_label.setText("Свойства")
             return
+
+        # Запрашиваем список объектов для обновления родителя
+        self.request_objects_list.emit()
         
         self._block_object_signals(True)
 
@@ -359,36 +370,39 @@ class PropertiesPanel(QWidget):
         self.x_spin.setValue(obj.x)
         self.y_spin.setValue(obj.y)
         self.locked_check.setChecked(obj.locked)
-        
+
         # Обновляем метку глобальных координат
         global_x, global_y = obj.get_global_position()
         self.global_coords_label.setText(f"{global_x:.1f}, {global_y:.1f}")
-        
+
         # Обновляем иконки замков у полей координат
         self._update_lock_icons()
-        
+
+        # Обновляем список родителей
+        self._update_parent_combo(obj)
+
         self.width_spin.setValue(obj.width)
         self.height_spin.setValue(obj.height)
         self.color_edit.setText(obj.color)
         self.visible_check.setChecked(obj.visible)
-        
+
         # Тип фигуры
         shape_index = {"rect": 0, "ellipse": 1, "triangle": 2}.get(obj.shape_type, 0)
         self.shape_type_combo.setCurrentIndex(shape_index)
-        
+
         # Изображение
         self.image_path_edit.setText(obj.image_path or "")
         self.image_fill_check.setChecked(obj.image_fill)
-        
+
         self.object_group.setVisible(True)
         self.image_group.setVisible(True)
-        
+
         # Обводка (для всех объектов)
         self.stroke_enabled_check.setChecked(obj.stroke_enabled)
         self.stroke_color_edit.setText(obj.stroke_color)
         self.stroke_width_spin.setValue(obj.stroke_width)
         self.stroke_group.setVisible(True)
-        
+
         # Поля текста
         if isinstance(obj, TextObject):
             self.text_preview.setText(obj.text[:50] + "..." if len(obj.text) > 50 else obj.text)
@@ -398,19 +412,26 @@ class PropertiesPanel(QWidget):
             self.italic_check.setChecked(obj.font_italic)
             self.underline_check.setChecked(obj.font_underline)
             self.text_color_edit.setText(obj.text_color)
-            
+
             # Выравнивание
             align_h_map = {"left": 0, "center": 1, "right": 2}
             align_v_map = {"top": 0, "center": 1, "bottom": 2}
             self.text_align_h_combo.setCurrentIndex(align_h_map.get(obj.text_align_h, 0))
             self.text_align_v_combo.setCurrentIndex(align_v_map.get(obj.text_align_v, 0))
-            
+
             self.text_group.setVisible(True)
         else:
             self.text_group.setVisible(False)
-        
+
         self._block_object_signals(False)
         self.title_label.setText(f"Объект: {obj.name}")
+
+    def set_objects_list(self, objects: list[BaseObject]):
+        """Устанавливает список объектов для выбора родителя."""
+        self._objects_list = objects
+        # Обновляем комбобокс если объект выбран
+        if self._current_object:
+            self._update_parent_combo(self._current_object)
 
     def _update_lock_icons(self):
         """Обновляет иконки замков у полей координат."""
@@ -424,6 +445,60 @@ class PropertiesPanel(QWidget):
             self.y_lock_label.setText("")
             self.x_spin.setEnabled(True)
             self.y_spin.setEnabled(True)
+
+    def _update_parent_combo(self, obj: BaseObject):
+        """Обновляет список родителей в комбобоксе."""
+        self._blocking_signals = True
+        self.parent_combo.clear()
+        self.parent_combo.addItem("Нет", None)
+        
+        # Добавляем все объекты кроме текущего и его потомков
+        for o in self._objects_list:
+            if o.id != obj.id and o.id != obj.parent_id:
+                # Проверяем, не является ли объект потомком текущего
+                if not self._is_descendant(o, obj):
+                    display_name = f"{o.name}"
+                    self.parent_combo.addItem(display_name, o.id)
+        
+        # Выбираем текущего родителя
+        for i in range(self.parent_combo.count()):
+            parent_id = self.parent_combo.itemData(i)
+            if parent_id == obj.parent_id:
+                self.parent_combo.setCurrentIndex(i)
+                break
+        
+        self._blocking_signals = False
+
+    def _is_descendant(self, potential_child: BaseObject, potential_parent: BaseObject) -> bool:
+        """Проверяет является ли potential_child потомком potential_parent."""
+        if potential_child.parent_id is None:
+            return False
+        if potential_child.parent_id == potential_parent.id:
+            return True
+        # Рекурсивно проверяем родителя
+        for o in self._objects_list:
+            if o.id == potential_child.parent_id:
+                return self._is_descendant(o, potential_parent)
+        return False
+
+    def _on_parent_changed(self, index: int):
+        """Обработчик изменения родителя."""
+        if self._blocking_signals or not self._current_object:
+            return
+        
+        parent_id = self.parent_combo.itemData(index)
+        self._current_object.parent_id = parent_id
+        
+        # Находим объект родителя и устанавливаем ссылку
+        parent_obj = None
+        if parent_id:
+            for o in self._objects_list:
+                if o.id == parent_id:
+                    parent_obj = o
+                    break
+        self._current_object._parent = parent_obj
+        
+        self._emit_object_changed()
 
     def _on_locked_changed(self, state: int):
         """Обработчик изменения блокировки объекта."""
@@ -476,6 +551,7 @@ class PropertiesPanel(QWidget):
         self.x_spin.blockSignals(block)
         self.y_spin.blockSignals(block)
         self.locked_check.blockSignals(block)
+        self.parent_combo.blockSignals(block)
         self.width_spin.blockSignals(block)
         self.height_spin.blockSignals(block)
         self.visible_check.blockSignals(block)

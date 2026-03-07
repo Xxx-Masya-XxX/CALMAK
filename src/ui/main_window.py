@@ -142,10 +142,11 @@ class MainWindow(QMainWindow):
 
         self.preview_frame.object_selected.connect(self._on_object_selected)
         self.preview_frame.object_moved.connect(self._on_object_moved)
-        
+
         self.properties_panel.canvas_changed.connect(self._on_canvas_changed)
         self.properties_panel.object_changed.connect(self._on_object_changed)
-        
+        self.properties_panel.request_objects_list.connect(self._on_request_objects_list)
+
         self.load_settings()
         # Добавляем первый канвас
         self._add_canvas()
@@ -366,6 +367,13 @@ class MainWindow(QMainWindow):
             scene = self.preview_frame.get_scene(canvas_id)
             if scene:
                 scene.rebuild_object_parent(obj)
+
+    def _on_request_objects_list(self):
+        """Обработчик запроса списка объектов для выбора родителя."""
+        canvas = self.project.get_active_canvas()
+        if canvas:
+            objects = self.project.get_objects(canvas.id)
+            self.properties_panel.set_objects_list(objects)
 
     def _on_add_child_requested(self, parent: BaseObject, obj_type: str):
         """Обработчик добавления дочернего объекта."""
