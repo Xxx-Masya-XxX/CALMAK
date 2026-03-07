@@ -65,6 +65,10 @@ class ResizableRectItem(QGraphicsRectItem):
         self.setRect(0, 0, self.obj.width, self.obj.height)
         # Позиция устанавливается через setPos - локальные координаты
         self.setPos(self.obj.x, self.obj.y)
+        # Смещаем центр вращения в центр объекта
+        self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
+        # Поворот
+        self.setRotation(self.obj.rotation)
 
     def update_appearance(self):
         """Обновляет внешний вид."""
@@ -72,6 +76,10 @@ class ResizableRectItem(QGraphicsRectItem):
         self.setBrush(QBrush(color))
         # Обновляем флаг перемещения при изменении locked
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, not self.obj.locked)
+        # Смещаем центр вращения в центр объекта
+        self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
+        # Обновляем поворот
+        self.setRotation(self.obj.rotation)
         self.update()
 
     def paint(self, painter: QPainter, option, widget):
@@ -371,11 +379,20 @@ class TextGraphicsItem(QGraphicsTextItem):
         doc_height = self.document().size().height()
         self.obj.height = max(self.obj.height, doc_height)
 
+        # Смещаем центр вращения в центр объекта
+        self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
+        # Обновляем поворот
+        self.setRotation(self.obj.rotation)
+
     def update_colors(self):
         """Обновляет цвета текста и обводки."""
         self.setDefaultTextColor(QColor(self.obj.text_color))
         # Обновляем флаг перемещения при изменении locked
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable, not self.obj.locked)
+        # Смещаем центр вращения в центр объекта
+        self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
+        # Обновляем поворот
+        self.setRotation(self.obj.rotation)
         self.update()
 
     def boundingRect(self) -> QRectF:

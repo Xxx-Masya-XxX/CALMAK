@@ -88,4 +88,6 @@ class TextObject(BaseObject):
             shape_type=data.get("shape_type", "rect"),
             text_align_h=data.get("text_align_h", "left"),
             text_align_v=data.get("text_align_v", "top"),
+            locked=data.get("locked", False),
+            rotation=data.get("rotation", 0.0),
         )

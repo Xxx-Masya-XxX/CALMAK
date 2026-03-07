@@ -50,6 +50,9 @@ class BaseObject:
     # Блокировка объекта (запрет перемещения и изменения размера)
     locked: bool = False
 
+    # Поворот объекта в градусах
+    rotation: float = 0.0
+
     def __hash__(self):
         """Хеш по id."""
         return hash(self.id)
@@ -171,6 +174,7 @@ class BaseObject:
             "image_fill": self.image_fill,
             "shape_type": self.shape_type,
             "locked": self.locked,
+            "rotation": self.rotation,
         }
 
     @classmethod
@@ -193,4 +197,5 @@ class BaseObject:
             image_fill=data.get("image_fill", False),
             shape_type=data.get("shape_type", "rect"),
             locked=data.get("locked", False),
+            rotation=data.get("rotation", 0.0),
         )

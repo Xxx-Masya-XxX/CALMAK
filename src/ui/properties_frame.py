@@ -148,7 +148,15 @@ class PropertiesPanel(QWidget):
         self.height_spin.setDecimals(1)
         self.height_spin.valueChanged.connect(self._on_size_changed)
         object_layout.addRow("Высота:", self.height_spin)
-        
+
+        # Поворот
+        self.rotation_spin = QDoubleSpinBox()
+        self.rotation_spin.setRange(-360, 360)
+        self.rotation_spin.setDecimals(1)
+        self.rotation_spin.setSuffix("°")
+        self.rotation_spin.valueChanged.connect(self._on_rotation_changed)
+        object_layout.addRow("Поворот:", self.rotation_spin)
+
         # Цвет (для BaseObject)
         self.color_edit = QLineEdit()
         self.color_edit.setPlaceholderText("#CCCCCC")
@@ -303,6 +311,7 @@ class PropertiesPanel(QWidget):
             self._blocking_signals = True
             self.x_spin.setValue(obj.x)
             self.y_spin.setValue(obj.y)
+            self.rotation_spin.setValue(obj.rotation)
             # Обновляем метку глобальных координат
             global_x, global_y = obj.get_global_position()
             self.global_coords_label.setText(f"{global_x:.1f}, {global_y:.1f}")
@@ -383,6 +392,7 @@ class PropertiesPanel(QWidget):
 
         self.width_spin.setValue(obj.width)
         self.height_spin.setValue(obj.height)
+        self.rotation_spin.setValue(obj.rotation)
         self.color_edit.setText(obj.color)
         self.visible_check.setChecked(obj.visible)
 
@@ -516,6 +526,7 @@ class PropertiesPanel(QWidget):
         self.global_coords_label.setText("")
         self.width_spin.setValue(0)
         self.height_spin.setValue(0)
+        self.rotation_spin.setValue(0)
         self.color_edit.clear()
         self.visible_check.setChecked(False)
         self.shape_type_combo.setCurrentIndex(0)
@@ -554,6 +565,7 @@ class PropertiesPanel(QWidget):
         self.parent_combo.blockSignals(block)
         self.width_spin.blockSignals(block)
         self.height_spin.blockSignals(block)
+        self.rotation_spin.blockSignals(block)
         self.visible_check.blockSignals(block)
         self.shape_type_combo.blockSignals(block)
 
@@ -629,6 +641,12 @@ class PropertiesPanel(QWidget):
         if self._current_object:
             self._current_object.width = self.width_spin.value()
             self._current_object.height = self.height_spin.value()
+            self._emit_object_changed()
+
+    def _on_rotation_changed(self):
+        """Обработчик изменения поворота."""
+        if self._current_object:
+            self._current_object.rotation = self.rotation_spin.value()
             self._emit_object_changed()
 
     def _on_visibility_changed(self, state: int):
