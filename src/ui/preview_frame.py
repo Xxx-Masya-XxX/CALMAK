@@ -9,8 +9,14 @@ from PySide6.QtCore import Qt, QRectF, QPointF, Signal
 from ..models import BaseObject, Canvas, TextObject
 
 
+class ClippedGraphicsView(QGraphicsView):
+    """QGraphicsView с обрезкой рендеринга по границам сцены."""
+    # Используем стандартный paintEvent
+    pass
+
+
 class CanvasRectItem(QGraphicsRectItem):
-    """Визуальное представление канваса."""
+    """Визуальное представление канваса с обрезкой дочерних элементов."""
 
     def __init__(self, canvas: Canvas, parent=None):
         super().__init__(0, 0, canvas.width, canvas.height, parent)
@@ -18,6 +24,8 @@ class CanvasRectItem(QGraphicsRectItem):
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setAcceptHoverEvents(False)
+        # Включаем обрезку дочерних элементов по границам этого элемента
+        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemClipsChildrenToShape)
         self.update_appearance()
 
     def update_appearance(self):
@@ -38,7 +46,8 @@ class ResizableRectItem(QGraphicsRectItem):
     def __init__(self, obj: BaseObject, parent_item: QGraphicsRectItem = None):
         super().__init__(0, 0, obj.width, obj.height, parent_item)
         self.obj = obj
-        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable)
+        # Устанавливаем флаги в зависимости от блокировки
+        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, not obj.locked)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemSendsGeometryChanges)
         self.setAcceptHoverEvents(True)
@@ -61,6 +70,8 @@ class ResizableRectItem(QGraphicsRectItem):
         """Обновляет внешний вид."""
         color = QColor(self.obj.color)
         self.setBrush(QBrush(color))
+        # Обновляем флаг перемещения при изменении locked
+        self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, not self.obj.locked)
         self.update()
 
     def paint(self, painter: QPainter, option, widget):
@@ -84,7 +95,15 @@ class ResizableRectItem(QGraphicsRectItem):
         else:  # rect
             clip_path.addRect(rect)
 
-        # Рисуем изображение если включено - с обрезкой по форме фигуры
+        # Добавляем обрезку по границам родительского элемента (канваса)
+        # чтобы изображение не рендерилось за пределами канваса
+        parent_clip_path = QPainterPath()
+        if self.parentItem():
+            parent_rect = self.parentItem().boundingRect()
+            parent_clip_path.addRect(parent_rect)
+            clip_path = clip_path.intersected(parent_clip_path)
+
+        # Рисуем изображение если включено - с обрезкой по форме фигуры и канваса
         if self.obj.image_fill and self.obj.image_path:
             image = QImage(self.obj.image_path)
             if not image.isNull():
@@ -92,6 +111,13 @@ class ResizableRectItem(QGraphicsRectItem):
                 painter.setClipPath(clip_path)
                 painter.drawImage(rect, image)
                 painter.restore()
+
+                # Рисуем обводку поверх изображения
+                if self.obj.stroke_enabled:
+                    pen = QPen(QColor(self.obj.stroke_color), self.obj.stroke_width)
+                    painter.setPen(pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawPath(clip_path)
 
                 # Рисуем рамку выделения
                 if self.isSelected():
@@ -301,7 +327,8 @@ class TextGraphicsItem(QGraphicsTextItem):
     def __init__(self, obj: TextObject, parent_item: QGraphicsTextItem = None):
         super().__init__(obj.text, parent_item)
         self.obj = obj
-        self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable)
+        # Устанавливаем флаги в зависимости от блокировки
+        self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable, not obj.locked)
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsSelectable)
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemSendsGeometryChanges)
         self.setAcceptHoverEvents(True)
@@ -347,6 +374,8 @@ class TextGraphicsItem(QGraphicsTextItem):
     def update_colors(self):
         """Обновляет цвета текста и обводки."""
         self.setDefaultTextColor(QColor(self.obj.text_color))
+        # Обновляем флаг перемещения при изменении locked
+        self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable, not self.obj.locked)
         self.update()
 
     def boundingRect(self) -> QRectF:
@@ -362,6 +391,11 @@ class TextGraphicsItem(QGraphicsTextItem):
 
     def paint(self, painter: QPainter, option, widget):
         """Рисует текст с обводкой и выравниванием."""
+        # Добавляем обрезку по границам родительского элемента (канваса)
+        if self.parentItem():
+            parent_rect = self.parentItem().boundingRect()
+            painter.setClipRect(parent_rect, Qt.ClipOperation.IntersectClip)
+        
         doc_height = self.document().size().height()
         y_offset = 0
 
@@ -588,6 +622,10 @@ class PreviewScene(QGraphicsScene):
         self.canvas_item = CanvasRectItem(canvas)
         self.addItem(self.canvas_item)
 
+        # Устанавливаем обрезку по границам сцены (канваса)
+        self.setSceneRect(0, 0, canvas.width, canvas.height)
+        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
+
         self.selectionChanged.connect(self._on_selection_changed)
 
     def _on_selection_changed(self):
@@ -619,12 +657,9 @@ class PreviewScene(QGraphicsScene):
             obj._parent = parent_obj
             # Устанавливаем zValue больше чем у родителя
             item.setZValue(parent_item.zValue() + 1)
-            # Добавляем на сцену через родителя
-            self.addItem(item)
         else:
-            # Нет родителя - добавляем на сцену
-            self.addItem(item)
-            # Базовый zValue для корневых объектов
+            # Нет родителя - добавляем как child canvas_item для обрезки
+            item.setParentItem(self.canvas_item)
             item.setZValue(0)
 
         # Устанавливаем локальную позицию
@@ -667,7 +702,7 @@ class PreviewScene(QGraphicsScene):
 
     def rebuild_object_parent(self, obj: BaseObject):
         """Перестраивает иерархию для объекта (при изменении родителя).
-        
+
         При смене родителя координаты пересчитываются:
         - Сохраняем глобальную позицию
         - Конвертируем в локальные координаты нового родителя
@@ -676,10 +711,10 @@ class PreviewScene(QGraphicsScene):
             return
 
         item = self._object_items[obj]
-        
+
         # Сохраняем текущую глобальную позицию на сцене
         global_pos = item.scenePos()
-        
+
         # Находим нового родителя
         new_parent_item = None
         new_parent_obj = None
@@ -707,11 +742,13 @@ class PreviewScene(QGraphicsScene):
                 obj.x = global_pos.x()
                 obj.y = global_pos.y()
         else:
-            # Нет родителя - используем глобальные координаты как локальные
-            obj.x = global_pos.x()
-            obj.y = global_pos.y()
+            # Нет родителя - добавляем как child canvas_item для обрезки
+            item.setParentItem(self.canvas_item)
             # Сбрасываем zValue для корневого объекта
             item.setZValue(0)
+            # Используем глобальные координаты как локальные
+            obj.x = global_pos.x()
+            obj.y = global_pos.y()
         
         # Обновляем позицию элемента
         item.setPos(obj.x, obj.y)
@@ -719,7 +756,9 @@ class PreviewScene(QGraphicsScene):
     def update_canvas(self):
         """Обновляет канвас."""
         self.canvas_item.update_appearance()
-        self.setSceneRect(self.canvas_item.boundingRect())
+        self.canvas_item.update_size()
+        # Явно устанавливаем sceneRect в (0, 0, width, height)
+        self.setSceneRect(0, 0, self.canvas.width, self.canvas.height)
 
     def clear_selection(self):
         """Снимает выделение со всех объектов."""
@@ -761,7 +800,7 @@ class PreviewFrame(QWidget):
         scene.object_changed.connect(self.object_changed.emit)
         scene.object_moved.connect(self.object_moved.emit)
 
-        view = QGraphicsView(self)
+        view = ClippedGraphicsView(self)
         view.setRenderHint(QPainter.RenderHint.Antialiasing)
         view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         view.setScene(scene)

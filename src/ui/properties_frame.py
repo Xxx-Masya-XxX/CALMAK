@@ -93,19 +93,34 @@ class PropertiesPanel(QWidget):
         self.object_name_edit.textChanged.connect(self._on_object_name_changed)
         object_layout.addRow("Имя:", self.object_name_edit)
 
-        # Позиция X (локальная)
+        # Блокировка объекта
+        self.locked_check = QCheckBox()
+        self.locked_check.stateChanged.connect(self._on_locked_changed)
+        object_layout.addRow("Заблокирован:", self.locked_check)
+
+        # Позиция X (локальная) с иконкой замка
+        x_layout = QHBoxLayout()
         self.x_spin = QDoubleSpinBox()
         self.x_spin.setRange(-10000, 10000)
         self.x_spin.setDecimals(1)
         self.x_spin.valueChanged.connect(self._on_position_changed)
-        object_layout.addRow("X (локальн.):", self.x_spin)
+        self.x_lock_label = QLabel("")
+        self.x_lock_label.setStyleSheet("color: #888; font-size: 14px;")
+        x_layout.addWidget(self.x_spin)
+        x_layout.addWidget(self.x_lock_label)
+        object_layout.addRow("X (локальн.):", x_layout)
 
-        # Позиция Y (локальная)
+        # Позиция Y (локальная) с иконкой замка
+        y_layout = QHBoxLayout()
         self.y_spin = QDoubleSpinBox()
         self.y_spin.setRange(-10000, 10000)
         self.y_spin.setDecimals(1)
         self.y_spin.valueChanged.connect(self._on_position_changed)
-        object_layout.addRow("Y (локальн.):", self.y_spin)
+        self.y_lock_label = QLabel("")
+        self.y_lock_label.setStyleSheet("color: #888; font-size: 14px;")
+        y_layout.addWidget(self.y_spin)
+        y_layout.addWidget(self.y_lock_label)
+        object_layout.addRow("Y (локальн.):", y_layout)
 
         # Глобальные координаты (только для чтения)
         self.global_coords_label = QLabel("")
@@ -343,10 +358,14 @@ class PropertiesPanel(QWidget):
         self.object_name_edit.setText(obj.name)
         self.x_spin.setValue(obj.x)
         self.y_spin.setValue(obj.y)
+        self.locked_check.setChecked(obj.locked)
         
         # Обновляем метку глобальных координат
         global_x, global_y = obj.get_global_position()
         self.global_coords_label.setText(f"{global_x:.1f}, {global_y:.1f}")
+        
+        # Обновляем иконки замков у полей координат
+        self._update_lock_icons()
         
         self.width_spin.setValue(obj.width)
         self.height_spin.setValue(obj.height)
@@ -393,11 +412,32 @@ class PropertiesPanel(QWidget):
         self._block_object_signals(False)
         self.title_label.setText(f"Объект: {obj.name}")
 
+    def _update_lock_icons(self):
+        """Обновляет иконки замков у полей координат."""
+        if self._current_object and self._current_object.locked:
+            self.x_lock_label.setText("🔒")
+            self.y_lock_label.setText("🔒")
+            self.x_spin.setEnabled(False)
+            self.y_spin.setEnabled(False)
+        else:
+            self.x_lock_label.setText("")
+            self.y_lock_label.setText("")
+            self.x_spin.setEnabled(True)
+            self.y_spin.setEnabled(True)
+
+    def _on_locked_changed(self, state: int):
+        """Обработчик изменения блокировки объекта."""
+        if self._current_object:
+            self._current_object.locked = state == 2  # Qt.Checked
+            self._update_lock_icons()
+            self._emit_object_changed()
+
     def _clear_object_fields(self):
         """Очищает поля объекта."""
         self.object_name_edit.clear()
         self.x_spin.setValue(0)
         self.y_spin.setValue(0)
+        self.locked_check.setChecked(False)
         self.global_coords_label.setText("")
         self.width_spin.setValue(0)
         self.height_spin.setValue(0)
@@ -435,6 +475,7 @@ class PropertiesPanel(QWidget):
         self.object_name_edit.blockSignals(block)
         self.x_spin.blockSignals(block)
         self.y_spin.blockSignals(block)
+        self.locked_check.blockSignals(block)
         self.width_spin.blockSignals(block)
         self.height_spin.blockSignals(block)
         self.visible_check.blockSignals(block)

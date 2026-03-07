@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QComboBox, QPushButton, QLabel, QGroupBox, QApplication
 )
 from PySide6.QtCore import Qt
-
+from ..utils.update_json import update_json
 
 class SettingsDialog(QDialog):
     """Диалоговое окно настроек приложения."""
@@ -83,6 +83,7 @@ class SettingsDialog(QDialog):
     def _on_ok(self):
         """Применяет настройки и закрывает окно."""
         self._apply_settings()
+        self.save_settings()
         self.accept()
     
     def _apply_settings(self):
@@ -100,3 +101,7 @@ class SettingsDialog(QDialog):
             "style": self.style_combo.currentText(),
             "theme": "dark" if self.theme_combo.currentIndex() == 1 else "light"
         }
+    def save_settings(self):
+        """Сохраняет настройки в файл."""
+        settings = self.get_settings()
+        update_json("settings.json", settings)

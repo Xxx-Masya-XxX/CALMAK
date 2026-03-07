@@ -2,20 +2,39 @@
 
 from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QMenu
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon, QFont
 
 from ..models import BaseObject, Canvas, TextObject
 
 
 class ObjectItem(QTreeWidgetItem):
     """Элемент объекта в дереве."""
-    
+
     def __init__(self, parent: QTreeWidgetItem, obj: BaseObject):
         super().__init__(parent, [obj.name])
         self.obj = obj
         self.setData(0, 1, obj)
         self.setFlags(self.flags() | Qt.ItemFlag.ItemIsEditable)
         self.setExpanded(True)
+        self.update_lock_icon()
+
+    def update_lock_icon(self):
+        """Обновляет иконку замка в зависимости от состояния блокировки."""
+        if self.obj.locked:
+            # Иконка закрытого замка
+            self.setIcon(0, QIcon.fromTheme("lock", QIcon()))
+            # Если нет системной иконки, используем символ
+            if self.icon(0).isNull():
+                font = self.font(0)
+                font.setPointSize(font.pointSize() - 1)
+                self.setFont(0, font)
+                self.setText(0, f"🔒 {self.obj.name}")
+        else:
+            # Убираем иконку если есть символ замка в тексте
+            text = self.text(0)
+            if text.startswith("🔒 "):
+                self.setText(0, text[3:])
+            self.setIcon(0, QIcon())
 
 
 class ElementsTree(QTreeWidget):
@@ -208,7 +227,17 @@ class ElementsTree(QTreeWidget):
         if canvas_id in self._object_items:
             if obj.id in self._object_items[canvas_id]:
                 item = self._object_items[canvas_id][obj.id]
+                item.obj = obj
                 item.setText(0, obj.name)
+                # Обновляем иконку замка
+                item.update_lock_icon()
+
+    def update_object_lock(self, canvas_id: str, obj: BaseObject):
+        """Обновляет иконку замка объекта в дереве."""
+        if canvas_id in self._object_items:
+            if obj.id in self._object_items[canvas_id]:
+                item = self._object_items[canvas_id][obj.id]
+                item.update_lock_icon()
     
     def _on_selection_changed(self):
         """Обработчик изменения выделения."""
@@ -398,3 +427,7 @@ class ElementsPanel(QWidget):
     def update_object_name(self, canvas_id: str, obj: BaseObject):
         """Обновляет имя объекта в панели."""
         self.tree.update_object_name(canvas_id, obj)
+
+    def update_object_lock(self, canvas_id: str, obj: BaseObject):
+        """Обновляет иконку замка объекта в панели."""
+        self.tree.update_object_lock(canvas_id, obj)

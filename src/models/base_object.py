@@ -47,6 +47,9 @@ class BaseObject:
     # Ссылка на родительский объект (устанавливается извне)
     _parent: Optional['BaseObject'] = field(default=None, repr=False, compare=False)
 
+    # Блокировка объекта (запрет перемещения и изменения размера)
+    locked: bool = False
+
     def __hash__(self):
         """Хеш по id."""
         return hash(self.id)
@@ -167,6 +170,7 @@ class BaseObject:
             "image_path": self.image_path,
             "image_fill": self.image_fill,
             "shape_type": self.shape_type,
+            "locked": self.locked,
         }
 
     @classmethod
@@ -188,4 +192,5 @@ class BaseObject:
             image_path=data.get("image_path"),
             image_fill=data.get("image_fill", False),
             shape_type=data.get("shape_type", "rect"),
+            locked=data.get("locked", False),
         )

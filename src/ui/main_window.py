@@ -61,7 +61,6 @@ class MainWindow(QMainWindow):
 
         # Менеджер проекта
         self.project = ProjectManager()
-        
         # Создаём меню
         self._create_menu_bar()
 
@@ -147,6 +146,7 @@ class MainWindow(QMainWindow):
         self.properties_panel.canvas_changed.connect(self._on_canvas_changed)
         self.properties_panel.object_changed.connect(self._on_object_changed)
         
+        self.load_settings()
         # Добавляем первый канвас
         self._add_canvas()
     
@@ -193,6 +193,18 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         dialog.exec()
     
+    def load_settings(self):
+        import json
+        try:
+            with open("settings.json", "r", encoding="utf-8") as f:
+                settings = json.load(f)
+                style_name = settings.get("style", "Fusion")
+                theme_name = settings.get("theme", "dark")
+                self.apply_settings(style_name, theme_name)
+        except (FileNotFoundError, json.JSONDecodeError):
+            # Если файл не найден или повреждён, применяем настройки по умолчанию
+            self.apply_settings("Fusion", "dark")
+
     def apply_settings(self, style_name: str, theme_name: str):
         """Применяет настройки из диалога."""
         # Применяем стиль
@@ -343,6 +355,8 @@ class MainWindow(QMainWindow):
             self.preview_frame.update_object(canvas_id, obj)
             # Обновляем имя в дереве
             self.elements_panel.update_object_name(canvas_id, obj)
+            # Обновляем иконку замка
+            self.elements_panel.update_object_lock(canvas_id, obj)
 
     def _on_object_parent_changed(self, obj: BaseObject):
         """Обработчик изменения родителя объекта."""
