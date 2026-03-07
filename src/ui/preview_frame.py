@@ -655,8 +655,10 @@ class PreviewScene(QGraphicsScene):
             # Устанавливаем родителя - позиция будет относительно родителя
             item.setParentItem(parent_item)
             obj._parent = parent_obj
-            # Устанавливаем zValue больше чем у родителя
+            # Устанавливаем zValue больше чем у родителя (дочерние рендерятся поверх)
             item.setZValue(parent_item.zValue() + 1)
+            # Добавляем на сцену через родителя
+            self.addItem(item)
         else:
             # Нет родителя - добавляем как child canvas_item для обрезки
             item.setParentItem(self.canvas_item)
