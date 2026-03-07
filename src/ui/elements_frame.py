@@ -20,13 +20,13 @@ class ObjectItem(QTreeWidgetItem):
 
 class ElementsTree(QTreeWidget):
     """Дерево объектов сцены."""
-    
+
     canvas_selected = Signal(str)  # canvas_id
     object_selected = Signal(BaseObject)
     object_parent_changed = Signal(BaseObject)  # сигнал об изменении родителя
     add_child_requested = Signal(object, str)  # родитель, тип объекта
     canvas_context_menu = Signal(object)  # Canvas или BaseObject (родитель)
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setHeaderLabel("Канвасы")
@@ -36,13 +36,24 @@ class ElementsTree(QTreeWidget):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
-        
+        self.setDropIndicatorShown(True)
+
         self._canvas_items: dict[str, QTreeWidgetItem] = {}
         self._object_items: dict[str, dict[str, ObjectItem]] = {}  # canvas_id -> {obj_id -> item}
         self._obj_to_item: dict[str, ObjectItem] = {}  # obj_id -> item
-        
+
         self.itemSelectionChanged.connect(self._on_selection_changed)
         self.itemDoubleClicked.connect(self._on_item_double_clicked)
+
+        # Для отслеживания перетаскивания
+        self._dragged_item = None
+
+    def startDrag(self, supportedActions):
+        """Начинает перетаскивание."""
+        items = self.selectedItems()
+        if items:
+            self._dragged_item = items[0]
+        super().startDrag(supportedActions)
     
     def add_canvas(self, canvas: Canvas) -> QTreeWidgetItem:
         """Добавляет канвас в дерево."""
@@ -106,32 +117,55 @@ class ElementsTree(QTreeWidget):
                     del self._obj_to_item[obj.id]
     
     def move_object(self, canvas_id: str, obj: BaseObject, new_parent_id: str | None):
-        """Перемещает объект под нового родителя или на корневой уровень."""
+        """Перемещает объект под нового родителя или на корневой уровень.
+
+        При смене родителя координаты пересчитываются:
+        - Сохраняем глобальную позицию объекта
+        - Конвертируем в локальные координаты нового родителя
+        
+        Примечание: Этот метод только обновляет данные модели, не перемещая элемент в дереве.
+        Для перемещения элемента в дереве используйте Qt API напрямую.
+        """
         if canvas_id not in self._object_items:
             return
-        
+
         if obj.id not in self._object_items[canvas_id]:
             return
-        
-        item = self._object_items[canvas_id][obj.id]
-        
-        # Удаляем из текущего родителя
-        old_parent = item.parent()
-        if old_parent:
-            old_parent.removeChild(item)
-        
-        # Добавляем к новому родителю или канвасу
+
+        # Находим старого и нового родителей
+        old_parent_obj = None
+        new_parent_obj = None
+
+        if obj.parent_id:
+            old_parent_obj = self._obj_to_item.get(obj.parent_id)
+            if old_parent_obj:
+                old_parent_obj = old_parent_obj.obj
+
         if new_parent_id and new_parent_id in self._obj_to_item:
-            new_parent_item = self._obj_to_item[new_parent_id]
-            new_parent_item.addChild(item)
-            new_parent_item.setExpanded(True)
+            new_parent_obj = self._obj_to_item[new_parent_id].obj
+
+        # Сохраняем глобальную позицию объекта перед перемещением
+        if old_parent_obj:
+            old_parent_global = old_parent_obj.get_global_position()
+            global_x = old_parent_global[0] + obj.x
+            global_y = old_parent_global[1] + obj.y
         else:
-            canvas_item = self._canvas_items.get(canvas_id)
-            if canvas_item:
-                canvas_item.addChild(item)
-        
-        # Обновляем parent_id объекта
+            global_x = obj.x
+            global_y = obj.y
+
+        # Обновляем parent_id объекта и связь _parent
         obj.parent_id = new_parent_id
+        obj._parent = new_parent_obj
+
+        # Пересчитываем локальные координаты относительно нового родителя
+        if new_parent_obj:
+            new_parent_global = new_parent_obj.get_global_position()
+            obj.x = global_x - new_parent_global[0]
+            obj.y = global_y - new_parent_global[1]
+        else:
+            # Нет родителя - используем глобальные координаты
+            obj.x = global_x
+            obj.y = global_y
     
     def get_selected_canvas(self) -> Canvas | None:
         """Возвращает выбранный канвас."""
@@ -254,16 +288,68 @@ class ElementsTree(QTreeWidget):
         """Обработчик добавления дочернего объекта."""
         # Испускаем сигнал с родителем
         self.add_child_requested.emit(parent_obj, obj_type)
-    
+
     def _on_set_parent(self, obj: BaseObject, parent: BaseObject | None):
         """Обработчик установки родителя."""
         canvas_id = self.get_canvas_id_for_object(obj)
         if canvas_id:
             parent_id = parent.id if parent else None
             self.move_object(canvas_id, obj, parent_id)
-            
+
             # Испускаем сигнал об изменении родителя для обновления превью
             self.object_parent_changed.emit(obj)
+
+    def dragMoveEvent(self, event):
+        """Обработка перетаскивания."""
+        # Разрешаем стандартное перетаскивание
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        """Обработка отпускания перетаскиваемого объекта."""
+        # Сначала даём Qt переместить элемент в дереве
+        super().dropEvent(event)
+        
+        # Теперь обновляем данные модели
+        if self._dragged_item:
+            dragged_obj = self._dragged_item.data(0, 1)
+            
+            # Определяем нового родителя
+            parent_item = self._dragged_item.parent()
+            new_parent_obj = None
+            
+            if parent_item and isinstance(parent_item, ObjectItem):
+                # Родитель - другой объект
+                new_parent_obj = parent_item.obj
+            elif parent_item and isinstance(parent_item, QTreeWidgetItem):
+                # Родитель - канвас (корневой уровень)
+                new_parent_obj = None
+            
+            # Обновляем parent_id и связь _parent
+            if isinstance(dragged_obj, BaseObject):
+                canvas_id = self.get_canvas_id_for_object(dragged_obj)
+                if canvas_id:
+                    # Перемещаем объект к новому родителю (с пересчётом координат)
+                    self.move_object(canvas_id, dragged_obj, new_parent_obj.id if new_parent_obj else None)
+                    
+                    # Испускаем сигнал об изменении родителя
+                    self.object_parent_changed.emit(dragged_obj)
+        
+        self._dragged_item = None
+
+    def _is_descendant(self, potential_child: BaseObject, potential_parent: BaseObject) -> bool:
+        """Проверяет является ли potential_child потомком potential_parent."""
+        if potential_child.parent_id is None:
+            return False
+        
+        if potential_child.parent_id == potential_parent.id:
+            return True
+        
+        # Рекурсивно проверяем родителя
+        for obj_id, obj_item in self._obj_to_item.items():
+            if obj_id == potential_child.parent_id:
+                return self._is_descendant(obj_item.obj, potential_parent)
+        
+        return False
 
 
 class ElementsPanel(QWidget):

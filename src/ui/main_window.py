@@ -275,9 +275,10 @@ class MainWindow(QMainWindow):
         # Устанавливаем родителя если есть
         if parent:
             obj.parent_id = parent.id
-            # Позиция относительно родителя (внутри)
-            obj.x = parent.x + 20
-            obj.y = parent.y + 20
+            # Позиция относительно родителя (локальные координаты)
+            # По умолчанию 20, 20 внутри родителя
+            obj.x = 20
+            obj.y = 20
 
         self.project.add_object(canvas.id, obj)
         self.elements_panel.add_object(canvas.id, obj)

@@ -2,64 +2,152 @@
 
 from dataclasses import dataclass, field
 import uuid
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from ..models import BaseObject
 
 
 @dataclass
 class BaseObject:
     """Базовый объект для рендеринга.
-    
+
     Представляет собой квадрат/прямоугольник с позицией и размерами.
     Поддерживает иерархию через parent_id.
-    """
     
+    Координаты:
+    - x, y - локальные координаты относительно родителя (если есть) или глобальные (если нет)
+    - При наличии родителя x, y хранят позицию относительно родителя
+    """
+
     name: str = "Object"
-    x: float = 0.0
-    y: float = 0.0
+    x: float = 0.0  # Локальная координата X относительно родителя
+    y: float = 0.0  # Локальная координата Y относительно родителя
     width: float = 100.0
     height: float = 100.0
     color: str = "#CCCCCC"
     visible: bool = True
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    
+
     # Иерархия
     parent_id: str | None = None
-    
+
     # Обводка
     stroke_enabled: bool = False
     stroke_color: str = "#000000"
     stroke_width: float = 1.0
-    
+
     # Изображение фона
     image_path: str | None = None
     image_fill: bool = False  # Заполнять ли изображением
-    
+
     # Тип фигуры: rect, ellipse, triangle
     shape_type: str = "rect"
-    
+
+    # Ссылка на родительский объект (устанавливается извне)
+    _parent: Optional['BaseObject'] = field(default=None, repr=False, compare=False)
+
     def __hash__(self):
         """Хеш по id."""
         return hash(self.id)
-    
+
     def __eq__(self, other):
         """Сравнение по id."""
         if isinstance(other, BaseObject):
             return self.id == other.id
         return False
-    
+
     @property
     def is_root(self) -> bool:
         """Проверяет, является ли объект корневым."""
         return self.parent_id is None
-    
+
+    @property
+    def parent(self) -> Optional['BaseObject']:
+        """Возвращает родительский объект."""
+        return self._parent
+
+    @parent.setter
+    def parent(self, value: Optional['BaseObject']):
+        """Устанавливает родительский объект."""
+        self._parent = value
+        if value is not None:
+            self.parent_id = value.id
+        else:
+            self.parent_id = None
+
+    def get_global_position(self) -> tuple[float, float]:
+        """Возвращает глобальные координаты объекта (на сцене)."""
+        if self._parent is None:
+            return (self.x, self.y)
+        
+        parent_global = self._parent.get_global_position()
+        return (parent_global[0] + self.x, parent_global[1] + self.y)
+
+    @property
+    def global_x(self) -> float:
+        """Глобальная координата X на сцене."""
+        return self.get_global_position()[0]
+
+    @property
+    def global_y(self) -> float:
+        """Глобальная координата Y на сцене."""
+        return self.get_global_position()[1]
+
+    @property
+    def local_x(self) -> float:
+        """Локальная координата X относительно родителя."""
+        return self.x
+
+    @property
+    def local_y(self) -> float:
+        """Локальная координата Y относительно родителя."""
+        return self.y
+
+    def set_local_position(self, x: float, y: float):
+        """Устанавливает локальные координаты относительно родителя."""
+        self.x = x
+        self.y = y
+
+    def set_global_position(self, x: float, y: float):
+        """Устанавливает глобальные координаты, конвертируя в локальные если есть родитель."""
+        if self._parent is None:
+            self.x = x
+            self.y = y
+        else:
+            parent_global = self._parent.get_global_position()
+            self.x = x - parent_global[0]
+            self.y = y - parent_global[1]
+
+    def convert_to_child_local(self, x: float, y: float) -> tuple[float, float]:
+        """Конвертирует глобальные координаты в локальные для дочернего объекта."""
+        if self._parent is None:
+            return (x, y)
+        
+        parent_global = self._parent.get_global_position()
+        return (x - parent_global[0], y - parent_global[1])
+
     @property
     def bounds(self) -> tuple[float, float, float, float]:
-        """Возвращает границы объекта (x, y, width, height)."""
+        """Возвращает границы объекта в локальных координатах (x, y, width, height)."""
         return (self.x, self.y, self.width, self.height)
-    
+
+    @property
+    def global_bounds(self) -> tuple[float, float, float, float]:
+        """Возвращает границы объекта в глобальных координатах."""
+        gx, gy = self.get_global_position()
+        return (gx, gy, self.width, self.height)
+
     def contains_point(self, px: float, py: float) -> bool:
-        """Проверяет, находится ли точка внутри объекта."""
+        """Проверяет, находится ли точка внутри объекта (в локальных координатах)."""
         return (self.x <= px <= self.x + self.width and
                 self.y <= py <= self.y + self.height)
+
+    def contains_global_point(self, px: float, py: float) -> bool:
+        """Проверяет, находится ли глобальная точка внутри объекта."""
+        gx, gy = self.get_global_position()
+        return (gx <= px <= gx + self.width and
+                gy <= py <= gy + self.height)
     
     def to_dict(self) -> dict:
         """Сериализует объект в словарь."""

@@ -86,26 +86,31 @@ class PropertiesPanel(QWidget):
         # Группа свойств базового объекта
         self.object_group = QGroupBox("Объект")
         object_layout = QFormLayout(self.object_group)
-        
+
         # Имя объекта
         self.object_name_edit = QLineEdit()
         self.object_name_edit.setPlaceholderText("Имя объекта")
         self.object_name_edit.textChanged.connect(self._on_object_name_changed)
         object_layout.addRow("Имя:", self.object_name_edit)
-        
-        # Позиция X
+
+        # Позиция X (локальная)
         self.x_spin = QDoubleSpinBox()
         self.x_spin.setRange(-10000, 10000)
         self.x_spin.setDecimals(1)
         self.x_spin.valueChanged.connect(self._on_position_changed)
-        object_layout.addRow("X:", self.x_spin)
-        
-        # Позиция Y
+        object_layout.addRow("X (локальн.):", self.x_spin)
+
+        # Позиция Y (локальная)
         self.y_spin = QDoubleSpinBox()
         self.y_spin.setRange(-10000, 10000)
         self.y_spin.setDecimals(1)
         self.y_spin.valueChanged.connect(self._on_position_changed)
-        object_layout.addRow("Y:", self.y_spin)
+        object_layout.addRow("Y (локальн.):", self.y_spin)
+
+        # Глобальные координаты (только для чтения)
+        self.global_coords_label = QLabel("")
+        self.global_coords_label.setStyleSheet("color: #666; font-size: 11px;")
+        object_layout.addRow("Глобальные:", self.global_coords_label)
         
         # Ширина
         self.width_spin = QDoubleSpinBox()
@@ -275,6 +280,9 @@ class PropertiesPanel(QWidget):
             self._blocking_signals = True
             self.x_spin.setValue(obj.x)
             self.y_spin.setValue(obj.y)
+            # Обновляем метку глобальных координат
+            global_x, global_y = obj.get_global_position()
+            self.global_coords_label.setText(f"{global_x:.1f}, {global_y:.1f}")
             self._blocking_signals = False
     
     def set_canvas(self, canvas: Canvas | None):
@@ -330,11 +338,16 @@ class PropertiesPanel(QWidget):
             return
         
         self._block_object_signals(True)
-        
+
         # Общие поля
         self.object_name_edit.setText(obj.name)
         self.x_spin.setValue(obj.x)
         self.y_spin.setValue(obj.y)
+        
+        # Обновляем метку глобальных координат
+        global_x, global_y = obj.get_global_position()
+        self.global_coords_label.setText(f"{global_x:.1f}, {global_y:.1f}")
+        
         self.width_spin.setValue(obj.width)
         self.height_spin.setValue(obj.height)
         self.color_edit.setText(obj.color)
@@ -385,6 +398,7 @@ class PropertiesPanel(QWidget):
         self.object_name_edit.clear()
         self.x_spin.setValue(0)
         self.y_spin.setValue(0)
+        self.global_coords_label.setText("")
         self.width_spin.setValue(0)
         self.height_spin.setValue(0)
         self.color_edit.clear()
@@ -488,6 +502,9 @@ class PropertiesPanel(QWidget):
         if self._current_object:
             self._current_object.x = self.x_spin.value()
             self._current_object.y = self.y_spin.value()
+            # Обновляем метку глобальных координат
+            global_x, global_y = self._current_object.get_global_position()
+            self.global_coords_label.setText(f"{global_x:.1f}, {global_y:.1f}")
             self._emit_object_changed()
 
     def _on_size_changed(self):

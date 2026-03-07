@@ -56,6 +56,13 @@ class ProjectManager:
         if canvas_id not in self._objects:
             self._objects[canvas_id] = []
         self._objects[canvas_id].append(obj)
+        
+        # Устанавливаем ссылку на родителя если есть
+        if obj.parent_id:
+            parent = self.get_parent(canvas_id, obj)
+            if parent:
+                obj._parent = parent
+        
         return obj
     
     def remove_object(self, canvas_id: str, obj: BaseObject):
@@ -96,8 +103,10 @@ class ProjectManager:
         """Устанавливает родителя для объекта."""
         if parent:
             obj.parent_id = parent.id
+            obj._parent = parent
         else:
             obj.parent_id = None
+            obj._parent = None
     
     def get_all_objects(self) -> list[BaseObject]:
         """Получает все объекты всех канвасов."""
@@ -107,13 +116,11 @@ class ProjectManager:
         return all_objects
     
     def move_object_with_children(self, canvas_id: str, obj: BaseObject, dx: float, dy: float):
-        """Перемещает объект и все его дочерние элементы."""
-        # Перемещаем сам объект
+        """Перемещает объект и все его дочерние элементы.
+        
+        Перемещает только локальные координаты объекта.
+        Дочерние объекты следуют за родителем автоматически через систему координат.
+        """
+        # Перемещаем сам объект (локальные координаты)
         obj.x += dx
         obj.y += dy
-        
-        # Перемещаем дочерние объекты
-        children = self.get_children(canvas_id, obj.id)
-        for child in children:
-            child.x += dx
-            child.y += dy

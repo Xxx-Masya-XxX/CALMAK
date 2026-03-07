@@ -1,9 +1,8 @@
-"""Панель превью - рендер объектов."""
+"""Панель превью - рендер объектов с поддержкой иерархии."""
 
 from PySide6.QtWidgets import QWidget, QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsTextItem
 from PySide6.QtGui import (
-    QPainter, QColor, QPen, QBrush, QCursor, QFont, QBrush as QBrushGui,
-    QPainterPath, QGlyphRun, QImage, QPolygonF, QStaticText
+    QPainter, QColor, QPen, QBrush, QCursor, QFont, QImage, QPolygonF, QPainterPath
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal
 
@@ -12,7 +11,7 @@ from ..models import BaseObject, Canvas, TextObject
 
 class CanvasRectItem(QGraphicsRectItem):
     """Визуальное представление канваса."""
-    
+
     def __init__(self, canvas: Canvas, parent=None):
         super().__init__(0, 0, canvas.width, canvas.height, parent)
         self.canvas = canvas
@@ -20,14 +19,14 @@ class CanvasRectItem(QGraphicsRectItem):
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setAcceptHoverEvents(False)
         self.update_appearance()
-    
+
     def update_appearance(self):
         """Обновляет внешний вид канваса."""
         color = QColor(self.canvas.background_color)
         self.setBrush(QBrush(color))
         pen = QPen(Qt.GlobalColor.gray, 1, Qt.PenStyle.DashLine)
         self.setPen(pen)
-    
+
     def update_size(self):
         """Обновляет размер канваса."""
         self.setRect(QRectF(0, 0, self.canvas.width, self.canvas.height))
@@ -36,8 +35,8 @@ class CanvasRectItem(QGraphicsRectItem):
 class ResizableRectItem(QGraphicsRectItem):
     """Прямоугольник с поддержкой изменения размера."""
 
-    def __init__(self, obj: BaseObject, parent=None):
-        super().__init__(0, 0, obj.width, obj.height, parent)
+    def __init__(self, obj: BaseObject, parent_item: QGraphicsRectItem = None):
+        super().__init__(0, 0, obj.width, obj.height, parent_item)
         self.obj = obj
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable)
@@ -54,8 +53,8 @@ class ResizableRectItem(QGraphicsRectItem):
 
     def update_geometry(self):
         """Обновляет геометрию из модели."""
-        # Обновляем только размер, позиция управляется через setPos
         self.setRect(0, 0, self.obj.width, self.obj.height)
+        # Позиция устанавливается через setPos - локальные координаты
         self.setPos(self.obj.x, self.obj.y)
 
     def update_appearance(self):
@@ -67,44 +66,59 @@ class ResizableRectItem(QGraphicsRectItem):
     def paint(self, painter: QPainter, option, widget):
         """Рисует фигуру с обводкой и изображением."""
         painter.save()
-        
+
         rect = self.rect()
-        
-        # Рисуем изображение если включено
+        shape_type = self.obj.shape_type
+
+        # Создаём путь для обрезки изображения по форме фигуры
+        clip_path = QPainterPath()
+        if shape_type == "ellipse":
+            clip_path.addEllipse(rect)
+        elif shape_type == "triangle":
+            polygon = QPolygonF([
+                QPointF(rect.center().x(), rect.top()),
+                QPointF(rect.bottomRight()),
+                QPointF(rect.bottomLeft())
+            ])
+            clip_path.addPolygon(polygon)
+        else:  # rect
+            clip_path.addRect(rect)
+
+        # Рисуем изображение если включено - с обрезкой по форме фигуры
         if self.obj.image_fill and self.obj.image_path:
             image = QImage(self.obj.image_path)
             if not image.isNull():
+                painter.save()
+                painter.setClipPath(clip_path)
                 painter.drawImage(rect, image)
                 painter.restore()
-                
+
                 # Рисуем рамку выделения
                 if self.isSelected():
                     painter.save()
                     pen = QPen(QColor(Qt.GlobalColor.blue), 2)
                     painter.setPen(pen)
                     painter.setBrush(Qt.BrushStyle.NoBrush)
-                    painter.drawRect(rect)
+                    painter.drawPath(clip_path)
                     painter.restore()
+                painter.restore()
                 return
-        
+
         # Рисуем заливку цветом
         color = QColor(self.obj.color)
         painter.setBrush(QBrush(color))
-        
+
         # Рисуем обводку если включена
         if self.obj.stroke_enabled:
             pen = QPen(QColor(self.obj.stroke_color), self.obj.stroke_width)
             painter.setPen(pen)
         else:
             painter.setPen(Qt.PenStyle.NoPen)
-        
+
         # Рисуем фигуру в зависимости от типа
-        shape_type = self.obj.shape_type
-        
         if shape_type == "ellipse":
             painter.drawEllipse(rect)
         elif shape_type == "triangle":
-            # Рисуем треугольник
             polygon = QPolygonF([
                 QPointF(rect.center().x(), rect.top()),
                 QPointF(rect.bottomRight()),
@@ -113,9 +127,9 @@ class ResizableRectItem(QGraphicsRectItem):
             painter.drawPolygon(polygon)
         else:  # rect
             painter.drawRect(rect)
-        
+
         painter.restore()
-        
+
         # Рисуем рамку выделения
         if self.isSelected():
             painter.save()
@@ -174,7 +188,6 @@ class ResizableRectItem(QGraphicsRectItem):
             event.ignore()
             return
 
-        # Позиция мыши относительно элемента
         local_pos = event.pos()
         edge = self._get_resize_edge(local_pos)
 
@@ -190,7 +203,6 @@ class ResizableRectItem(QGraphicsRectItem):
     def mousePressEvent(self, event):
         """Обработка нажатия мыши."""
         if event.button() == Qt.MouseButton.LeftButton:
-            # Позиция мыши относительно элемента
             local_pos = event.pos()
             edge = self._get_resize_edge(local_pos)
 
@@ -198,7 +210,6 @@ class ResizableRectItem(QGraphicsRectItem):
                 self._resizing = True
                 self._resize_edge = edge
                 self._resize_start_pos = event.scenePos()
-                # Сохраняем текущие значения объекта
                 self._original_x = self.obj.x
                 self._original_y = self.obj.y
                 self._original_width = self.obj.width
@@ -259,33 +270,25 @@ class ResizableRectItem(QGraphicsRectItem):
 
     def itemChange(self, change, value):
         """Обработка изменений элемента."""
-        # Игнорируем изменение позиции во время изменения размера
         if change == QGraphicsRectItem.GraphicsItemChange.ItemPositionHasChanged:
             if self._resizing:
                 return QPointF(0, 0)
 
-            # Получаем абсолютную позицию на сцене
-            scene_pos = self.scenePos()
-            dx = scene_pos.x() - self.obj.x
-            dy = scene_pos.y() - self.obj.y
-            self.obj.x = scene_pos.x()
-            self.obj.y = scene_pos.y()
+            # Получаем новую локальную позицию
+            new_pos = value.toPoint()
+            
+            # Обновляем координаты в модели (локальные координаты)
+            dx = new_pos.x() - self.obj.x
+            dy = new_pos.y() - self.obj.y
+            self.obj.x = new_pos.x()
+            self.obj.y = new_pos.y()
 
-            # Обновляем координаты дочерних объектов в модели и визуально
+            # Отправляем сигнал об изменении позиции для обновления в реальном времени
             if hasattr(self, 'scene') and self.scene():
                 scene = self.scene()
-                for child_obj, child_item in getattr(scene, '_object_items', {}).items():
-                    if child_obj.parent_id == self.obj.id:
-                        # Обновляем координаты в модели
-                        child_obj.x += dx
-                        child_obj.y += dy
-                        # Обновляем позицию визуально
-                        child_item.setPos(child_obj.x, child_obj.y)
-                
-                # Отправляем сигнал об изменении позиции для обновления в реальном времени
                 scene.object_moved.emit(self.obj)
 
-            return QPointF(0, 0)
+            return new_pos
         elif change == QGraphicsRectItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update_appearance()
 
@@ -295,22 +298,20 @@ class ResizableRectItem(QGraphicsRectItem):
 class TextGraphicsItem(QGraphicsTextItem):
     """Текстовый элемент с поддержкой изменения размера."""
 
-    def __init__(self, obj: TextObject, parent=None):
-        super().__init__(obj.text, parent)
+    def __init__(self, obj: TextObject, parent_item: QGraphicsTextItem = None):
+        super().__init__(obj.text, parent_item)
         self.obj = obj
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsSelectable)
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemSendsGeometryChanges)
         self.setAcceptHoverEvents(True)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        
+
         self._resizing = False
         self._resize_handle_size = 8.0
         self._resize_edge = None
-        
-        # Устанавливаем позицию и размер
+
         self.setPos(obj.x, obj.y)
-        
         self.update_font()
         self.update_colors()
 
@@ -321,44 +322,36 @@ class TextGraphicsItem(QGraphicsTextItem):
         font.setItalic(self.obj.font_italic)
         font.setUnderline(self.obj.font_underline)
         self.setFont(font)
-
-        # Обновляем текст
         self.setPlainText(self.obj.text)
-
-        # Ограничиваем текст по ширине
         self.setTextWidth(self.obj.width)
-        
+
         # Выравнивание текста по горизонтали
         doc = self.document()
         block = doc.firstBlock()
         block_format = block.blockFormat()
-        
+
         if self.obj.text_align_h == "center":
             block_format.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         elif self.obj.text_align_h == "right":
             block_format.setAlignment(Qt.AlignmentFlag.AlignRight)
         else:
             block_format.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
+
         cursor = self.textCursor()
         cursor.setBlockFormat(block_format)
-        
+
         # Обновляем высоту объекта
         doc_height = self.document().size().height()
         self.obj.height = max(self.obj.height, doc_height)
 
     def update_colors(self):
         """Обновляет цвета текста и обводки."""
-        # Цвет текста
         self.setDefaultTextColor(QColor(self.obj.text_color))
-        
-        # Обновляем для перерисовки
         self.update()
 
     def boundingRect(self) -> QRectF:
         """Переопределённая граница для обработки изменения размера."""
-        # Получаем реальные границы текста
-        doc_rect = self.document().idealWidth(), self.document().size().height()
+        doc_rect = (self.document().idealWidth(), self.document().size().height())
         base_rect = QRectF(0, 0, self.obj.width, max(self.obj.height, doc_rect[1]))
         return base_rect.adjusted(
             -self._resize_handle_size,
@@ -369,7 +362,6 @@ class TextGraphicsItem(QGraphicsTextItem):
 
     def paint(self, painter: QPainter, option, widget):
         """Рисует текст с обводкой и выравниванием."""
-        # Вычисляем смещение для вертикального выравнивания
         doc_height = self.document().size().height()
         y_offset = 0
 
@@ -378,7 +370,6 @@ class TextGraphicsItem(QGraphicsTextItem):
         elif self.obj.text_align_v == "bottom":
             y_offset = self.obj.height - doc_height
 
-        # Применяем вертикальное выравнивание
         if y_offset != 0:
             painter.save()
             painter.translate(0, y_offset)
@@ -393,11 +384,10 @@ class TextGraphicsItem(QGraphicsTextItem):
 
             font = self.font()
             painter.setFont(font)
-            
-            # Рисуем обводку через QTextLayout с правильными координатами
+
             doc = self.document()
             block = doc.firstBlock()
-            
+
             while block.isValid():
                 layout = block.layout()
                 if layout:
@@ -408,20 +398,16 @@ class TextGraphicsItem(QGraphicsTextItem):
                         length = line.textLength()
                         if length > 0:
                             line_text = block_text[start:start + length]
-                            # Удаляем символ новой строки если есть
                             if line_text.endswith('\n'):
                                 line_text = line_text[:-1]
                             if line_text:
                                 path = QPainterPath()
-                                # line.x() и line.y() - это абсолютные координаты внутри QGraphicsTextItem
                                 path.addText(line.x(), line.y() + font.pointSize(), font, line_text)
                                 painter.drawPath(path)
-                
                 block = block.next()
 
             painter.restore()
 
-        # Рисуем обычный текст
         super().paint(painter, option, widget)
 
         # Рисуем рамку выделения
@@ -434,7 +420,6 @@ class TextGraphicsItem(QGraphicsTextItem):
             painter.drawRect(rect)
             painter.restore()
 
-        # Восстанавливаем трансформацию вертикального выравнивания
         if y_offset != 0:
             painter.restore()
 
@@ -566,27 +551,20 @@ class TextGraphicsItem(QGraphicsTextItem):
         if change == QGraphicsTextItem.GraphicsItemChange.ItemPositionHasChanged:
             if self._resizing:
                 return QPointF(0, 0)
-            scene_pos = self.scenePos()
-            dx = scene_pos.x() - self.obj.x
-            dy = scene_pos.y() - self.obj.y
-            self.obj.x = scene_pos.x()
-            self.obj.y = scene_pos.y()
+
+            # Получаем новую локальную позицию
+            new_pos = value.toPoint()
             
-            # Обновляем координаты дочерних объектов в модели и визуально
+            # Обновляем координаты в модели (локальные координаты)
+            self.obj.x = new_pos.x()
+            self.obj.y = new_pos.y()
+
+            # Отправляем сигнал об изменении позиции
             if hasattr(self, 'scene') and self.scene():
                 scene = self.scene()
-                for child_obj, child_item in getattr(scene, '_object_items', {}).items():
-                    if child_obj.parent_id == self.obj.id:
-                        # Обновляем координаты в модели
-                        child_obj.x += dx
-                        child_obj.y += dy
-                        # Обновляем позицию визуально
-                        child_item.setPos(child_obj.x, child_obj.y)
-                
-                # Отправляем сигнал об изменении позиции для обновления в реальном времени
                 scene.object_moved.emit(self.obj)
-            
-            return QPointF(0, 0)
+
+            return new_pos
         elif change == QGraphicsTextItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()
 
@@ -598,7 +576,7 @@ class PreviewScene(QGraphicsScene):
 
     object_selected = Signal(BaseObject)
     object_changed = Signal(BaseObject)
-    object_moved = Signal(BaseObject)  # Сигнал для обновления в реальном времени
+    object_moved = Signal(BaseObject)
 
     def __init__(self, canvas: Canvas, parent=None):
         super().__init__(parent)
@@ -621,6 +599,7 @@ class PreviewScene(QGraphicsScene):
 
     def add_object(self, obj: BaseObject) -> ResizableRectItem | TextGraphicsItem:
         """Добавляет объект на сцену."""
+        # Создаём элемент
         if isinstance(obj, TextObject):
             item = TextGraphicsItem(obj)
         else:
@@ -629,11 +608,30 @@ class PreviewScene(QGraphicsScene):
         self._object_items[obj] = item
         self._items_by_id[obj.id] = item
 
-        # Добавляем на сцену (без setParentItem)
-        self.addItem(item)
+        # Находим родительский элемент
+        parent_item = None
+        parent_obj = None
+        if obj.parent_id and obj.parent_id in self._items_by_id:
+            parent_item = self._items_by_id[obj.parent_id]
+            parent_obj = self._get_object_by_id(obj.parent_id)
+            # Устанавливаем родителя - позиция будет относительно родителя
+            item.setParentItem(parent_item)
+            obj._parent = parent_obj
+            # Устанавливаем zValue больше чем у родителя
+            item.setZValue(parent_item.zValue() + 1)
+            # Добавляем на сцену через родителя
+            self.addItem(item)
+        else:
+            # Нет родителя - добавляем на сцену
+            self.addItem(item)
+            # Базовый zValue для корневых объектов
+            item.setZValue(0)
+
+        # Устанавливаем локальную позицию
+        item.setPos(obj.x, obj.y)
 
         return item
-    
+
     def _get_object_by_id(self, obj_id: str) -> BaseObject | None:
         """Получает объект по ID."""
         for obj in self._object_items.keys():
@@ -649,7 +647,7 @@ class PreviewScene(QGraphicsScene):
             children = [o for o in self._object_items.keys() if o.parent_id == obj.id]
             for child in children:
                 self.remove_object(child)
-            
+
             self.removeItem(item)
             del self._object_items[obj]
             if obj.id in self._items_by_id:
@@ -665,33 +663,61 @@ class PreviewScene(QGraphicsScene):
             else:
                 item.update_geometry()
                 item.update_appearance()
-            item.update()  # Обновляем для перерисовки обводки
+            item.update()
 
     def rebuild_object_parent(self, obj: BaseObject):
-        """Перестраивает иерархию для объекта (при изменении родителя)."""
+        """Перестраивает иерархию для объекта (при изменении родителя).
+        
+        При смене родителя координаты пересчитываются:
+        - Сохраняем глобальную позицию
+        - Конвертируем в локальные координаты нового родителя
+        """
         if obj not in self._object_items:
             return
 
         item = self._object_items[obj]
-        parent_obj = None
-
-        # Находим родителя
+        
+        # Сохраняем текущую глобальную позицию на сцене
+        global_pos = item.scenePos()
+        
+        # Находим нового родителя
+        new_parent_item = None
+        new_parent_obj = None
         if obj.parent_id and obj.parent_id in self._items_by_id:
-            parent_obj = self._get_object_by_id(obj.parent_id)
+            new_parent_item = self._items_by_id[obj.parent_id]
+            new_parent_obj = self._get_object_by_id(obj.parent_id)
 
-        # Сохраняем абсолютную позицию
-        abs_pos = item.scenePos()
+        # Сбрасываем родителя
+        item.setParentItem(None)
+        obj._parent = None
 
-        # Устанавливаем новую позицию
-        if parent_obj:
-            # Позиция относительно родителя
-            item.setPos(obj.x, obj.y)
+        # Устанавливаем нового родителя
+        if new_parent_item:
+            item.setParentItem(new_parent_item)
+            obj._parent = new_parent_obj
+            # Обновляем zValue
+            item.setZValue(new_parent_item.zValue() + 1)
+
+            # Пересчитываем локальные координаты относительно нового родителя
+            if new_parent_obj:
+                parent_global = new_parent_obj.get_global_position()
+                obj.x = global_pos.x() - parent_global[0]
+                obj.y = global_pos.y() - parent_global[1]
+            else:
+                obj.x = global_pos.x()
+                obj.y = global_pos.y()
         else:
-            item.setPos(abs_pos)
+            # Нет родителя - используем глобальные координаты как локальные
+            obj.x = global_pos.x()
+            obj.y = global_pos.y()
+            # Сбрасываем zValue для корневого объекта
+            item.setZValue(0)
+        
+        # Обновляем позицию элемента
+        item.setPos(obj.x, obj.y)
 
     def update_canvas(self):
         """Обновляет канвас."""
-        self.canvas_item.update_size()
         self.canvas_item.update_appearance()
         self.setSceneRect(self.canvas_item.boundingRect())
 
@@ -710,8 +736,8 @@ class PreviewFrame(QWidget):
 
     object_selected = Signal(BaseObject)
     object_changed = Signal(BaseObject)
-    object_moved = Signal(BaseObject)  # Сигнал для обновления в реальном времени
-    canvas_selected = Signal(object)  # canvas_id
+    object_moved = Signal(BaseObject)
+    canvas_selected = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -723,33 +749,30 @@ class PreviewFrame(QWidget):
         # Стек для переключения между канвасами
         self.stacked_widget = QStackedWidget(self)
         layout.addWidget(self.stacked_widget)
-        
+
         # Хранилище сцен по канвасам
         self._scenes: dict[str, PreviewScene] = {}
         self._views: dict[str, QGraphicsView] = {}
-    
+
     def add_canvas(self, canvas: Canvas) -> PreviewScene:
         """Добавляет канвас для отображения."""
-        # Создаём сцену
         scene = PreviewScene(canvas)
         scene.object_selected.connect(self.object_selected.emit)
         scene.object_changed.connect(self.object_changed.emit)
         scene.object_moved.connect(self.object_moved.emit)
 
-        # Создаём view
         view = QGraphicsView(self)
         view.setRenderHint(QPainter.RenderHint.Antialiasing)
         view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         view.setScene(scene)
         view.setSceneRect(0, 0, canvas.width, canvas.height)
-        
-        # Добавляем в стек
+
         self._scenes[canvas.id] = scene
         self._views[canvas.id] = view
         self.stacked_widget.addWidget(view)
-        
+
         return scene
-    
+
     def remove_canvas(self, canvas_id: str):
         """Удаляет канвас."""
         if canvas_id in self._scenes:
@@ -760,36 +783,36 @@ class PreviewFrame(QWidget):
             scene.clear()
             del self._scenes[canvas_id]
             del self._views[canvas_id]
-    
+
     def set_active_canvas(self, canvas_id: str):
         """Переключается на указанный канвас."""
         if canvas_id in self._views:
             view = self._views[canvas_id]
             index = self.stacked_widget.indexOf(view)
             self.stacked_widget.setCurrentIndex(index)
-    
+
     def get_scene(self, canvas_id: str) -> PreviewScene | None:
         """Получает сцену канваса."""
         return self._scenes.get(canvas_id)
-    
+
     def add_object(self, canvas_id: str, obj: BaseObject):
         """Добавляет объект на канвас."""
         scene = self.get_scene(canvas_id)
         if scene:
             scene.add_object(obj)
-    
+
     def remove_object(self, canvas_id: str, obj: BaseObject):
         """Удаляет объект с канваса."""
         scene = self.get_scene(canvas_id)
         if scene:
             scene.remove_object(obj)
-    
+
     def update_object(self, canvas_id: str, obj: BaseObject):
         """Обновляет объект на канвасе."""
         scene = self.get_scene(canvas_id)
         if scene:
             scene.update_object(obj)
-    
+
     def update_canvas(self, canvas_id: str):
         """Обновляет канвас."""
         scene = self.get_scene(canvas_id)
