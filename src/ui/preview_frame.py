@@ -10,9 +10,39 @@ from ..models import BaseObject, Canvas, TextObject
 
 
 class ClippedGraphicsView(QGraphicsView):
-    """QGraphicsView с обрезкой рендеринга по границам сцены."""
-    # Используем стандартный paintEvent
-    pass
+    """QGraphicsView с обрезкой рендеринга по границам сцены и поддержкой зума."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._zoom_factor = 1.0
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        # Включаем зум колесом мыши
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+
+    def wheelEvent(self, event):
+        """Обработка колеса мыши для зума."""
+        if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            # Зум колесом при зажатом Ctrl
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.scale(1.1, 1.1)
+                self._zoom_factor *= 1.1
+            else:
+                self.scale(1 / 1.1, 1 / 1.1)
+                self._zoom_factor /= 1.1
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def reset_zoom(self):
+        """Сбрасывает зум к 100%."""
+        self.resetTransform()
+        self._zoom_factor = 1.0
+
+    def get_zoom_factor(self) -> float:
+        """Возвращает текущий фактор зума."""
+        return self._zoom_factor
 
 
 class CanvasRectItem(QGraphicsRectItem):
@@ -820,8 +850,6 @@ class PreviewFrame(QWidget):
         scene.object_moved.connect(self.object_moved.emit)
 
         view = ClippedGraphicsView(self)
-        view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         view.setScene(scene)
         view.setSceneRect(0, 0, canvas.width, canvas.height)
 
@@ -878,3 +906,28 @@ class PreviewFrame(QWidget):
             scene.update_canvas()
             view = self._views[canvas_id]
             view.setSceneRect(0, 0, scene.canvas.width, scene.canvas.height)
+
+    def zoom_in(self, canvas_id: str):
+        """Увеличивает масштаб для указанного канваса."""
+        if canvas_id in self._views:
+            view = self._views[canvas_id]
+            view.scale(1.1, 1.1)
+
+    def zoom_out(self, canvas_id: str):
+        """Уменьшает масштаб для указанного канваса."""
+        if canvas_id in self._views:
+            view = self._views[canvas_id]
+            view.scale(1 / 1.1, 1 / 1.1)
+
+    def reset_zoom(self, canvas_id: str):
+        """Сбрасывает масштаб для указанного канваса к 100%."""
+        if canvas_id in self._views:
+            view = self._views[canvas_id]
+            view.reset_zoom()
+
+    def get_zoom_factor(self, canvas_id: str) -> float:
+        """Возвращает текущий фактор масштаба для указанного канваса."""
+        if canvas_id in self._views:
+            view = self._views[canvas_id]
+            return view.get_zoom_factor()
+        return 1.0

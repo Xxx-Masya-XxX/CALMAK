@@ -145,6 +145,28 @@ class MainWindow(QMainWindow):
 
         toolbar_layout.addStretch()
 
+        # Кнопки управления зумом
+        from PySide6.QtGui import QFont
+        self.zoom_out_btn = QPushButton("−")
+        self.zoom_out_btn.setFixedSize(30, 30)
+        self.zoom_out_btn.setFont(QFont("Arial", 14, QFont.Bold))
+        self.zoom_out_btn.setToolTip("Уменьшить масштаб (Ctrl + колесо вниз)")
+        self.zoom_out_btn.clicked.connect(self._zoom_out)
+        toolbar_layout.addWidget(self.zoom_out_btn)
+
+        self.zoom_value_label = QPushButton("100%")
+        self.zoom_value_label.setFixedSize(50, 30)
+        self.zoom_value_label.setToolTip("Текущий масштаб")
+        self.zoom_value_label.clicked.connect(self._reset_zoom)
+        toolbar_layout.addWidget(self.zoom_value_label)
+
+        self.zoom_in_btn = QPushButton("+")
+        self.zoom_in_btn.setFixedSize(30, 30)
+        self.zoom_in_btn.setFont(QFont("Arial", 14, QFont.Bold))
+        self.zoom_in_btn.setToolTip("Увеличить масштаб (Ctrl + колесо вверх)")
+        self.zoom_in_btn.clicked.connect(self._zoom_in)
+        toolbar_layout.addWidget(self.zoom_in_btn)
+
         # Кнопка экспорта
         self.export_btn = QPushButton("Экспорт в PNG")
         self.export_btn.clicked.connect(self._export_to_png)
@@ -346,6 +368,7 @@ class MainWindow(QMainWindow):
             self.project.set_active_canvas(canvas_id)
             self.preview_frame.set_active_canvas(canvas_id)
             self.properties_panel.set_canvas(canvas)
+            self._update_zoom_label()
     
     def _on_object_selected(self, obj: BaseObject):
         """Обработчик выбора объекта."""
@@ -452,9 +475,42 @@ class MainWindow(QMainWindow):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         scene.render(painter)
         painter.end()
-        
+
         # Сохраняем в файл
         if pixmap.save(file_path):
             QMessageBox.information(self, "Успех", f"Канвас экспортирован в {file_path}")
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось сохранить файл")
+
+    def _get_active_canvas_id(self) -> str | None:
+        """Возвращает ID активного канваса."""
+        canvas = self.project.get_active_canvas()
+        return canvas.id if canvas else None
+
+    def _update_zoom_label(self):
+        """Обновляет метку масштаба."""
+        canvas_id = self._get_active_canvas_id()
+        if canvas_id:
+            zoom = self.preview_frame.get_zoom_factor(canvas_id)
+            self.zoom_value_label.setText(f"{int(zoom * 100)}%")
+
+    def _zoom_in(self):
+        """Увеличивает масштаб."""
+        canvas_id = self._get_active_canvas_id()
+        if canvas_id:
+            self.preview_frame.zoom_in(canvas_id)
+            self._update_zoom_label()
+
+    def _zoom_out(self):
+        """Уменьшает масштаб."""
+        canvas_id = self._get_active_canvas_id()
+        if canvas_id:
+            self.preview_frame.zoom_out(canvas_id)
+            self._update_zoom_label()
+
+    def _reset_zoom(self):
+        """Сбрасывает масштаб к 100%."""
+        canvas_id = self._get_active_canvas_id()
+        if canvas_id:
+            self.preview_frame.reset_zoom(canvas_id)
+            self._update_zoom_label()
