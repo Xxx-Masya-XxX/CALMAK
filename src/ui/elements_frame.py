@@ -93,6 +93,29 @@ class SceneTreeModel(QAbstractItemModel):
         self._canvas_nodes: dict[str, TreeNode] = {}
         self._obj_nodes: dict[str, TreeNode] = {}   # obj_id → TreeNode
 
+        # кэш глобальных индексов: obj_id → int (1-based DFS)
+        self._global_index_cache: dict[str, int] = {}
+
+    def _rebuild_global_index(self) -> None:
+        """Пересчитывает сквозной DFS-индекс для всех объектов."""
+        counter = [1]
+
+        def _walk(node: TreeNode) -> None:
+            for child in node.children:
+                if child.is_canvas:
+                    _walk(child)
+                elif child.is_object:
+                    self._global_index_cache[child.data.id] = counter[0]
+                    counter[0] += 1
+                    _walk(child)
+
+        self._global_index_cache.clear()
+        _walk(self._root)
+
+    def global_index_of(self, obj_id: str) -> int | None:
+        """Возвращает глобальный DFS-индекс объекта (1-based) или None."""
+        return self._global_index_cache.get(obj_id)
+
     # ------------------------------------------------------------------
     # QAbstractItemModel API
     # ------------------------------------------------------------------
@@ -262,6 +285,7 @@ class SceneTreeModel(QAbstractItemModel):
         self.beginInsertRows(new_parent_index, insert_row, insert_row)
         parent_node.insert_child(insert_row, obj_node)
         self.endInsertRows()
+        self._rebuild_global_index()
 
         return True
 
@@ -309,6 +333,7 @@ class SceneTreeModel(QAbstractItemModel):
         parent_node.append_child(new_node)
         self._obj_nodes[obj.id] = new_node
         self.endInsertRows()
+        self._rebuild_global_index()
         return self.createIndex(new_node.row_in_parent, 0, new_node)
 
     def remove_object(self, canvas_id: str, obj: BaseObject) -> None:
@@ -321,6 +346,7 @@ class SceneTreeModel(QAbstractItemModel):
         self.beginRemoveRows(parent_index, row, row)
         parent_node.remove_child(node)
         self.endRemoveRows()
+        self._rebuild_global_index()
 
     def move_object(self, canvas_id: str, obj: BaseObject,
                     new_parent_id: str | None) -> None:
@@ -356,6 +382,7 @@ class SceneTreeModel(QAbstractItemModel):
         self.beginInsertRows(new_parent_index, insert_row, insert_row)
         new_parent_node.append_child(node)
         self.endInsertRows()
+        self._rebuild_global_index()
 
     def update_canvas_name(self, canvas: Canvas) -> None:
         node = self._canvas_nodes.get(canvas.id)
@@ -496,6 +523,32 @@ class _DropLineDelegate(QStyledItemDelegate):
 
         view: CustomTreeView = self.parent()  # type: ignore[assignment]
         model = view.model()
+
+        # ── Глобальный DFS-индекс объекта ───────────────────────────────
+        if hasattr(model, "node_for_index") and hasattr(model, "global_index_of"):
+            node = model.node_for_index(index)
+            if node is not None and node.is_object:
+                g_idx = model.global_index_of(node.data.id)
+                if g_idx is not None:
+                    idx_text = str(g_idx)
+                    painter.save()
+                    badge_color = QColor(140, 140, 150)
+                    small_font = painter.font()
+                    small_font.setPointSizeF(max(6.5, small_font.pointSizeF() - 2))
+                    painter.setFont(small_font)
+                    fm = painter.fontMetrics()
+                    badge_w = fm.horizontalAdvance(idx_text) + 8
+                    badge_h = fm.height() + 2
+                    badge_x = option.rect.right() - badge_w - 4
+                    badge_y = option.rect.top() + (option.rect.height() - badge_h) // 2
+                    from PySide6.QtCore import QRect
+                    badge_rect = QRect(badge_x, badge_y, badge_w, badge_h)
+                    painter.setBrush(QColor(210, 210, 218, 160))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRoundedRect(badge_rect, 3, 3)
+                    painter.setPen(badge_color)
+                    painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, idx_text)
+                    painter.restore()
 
         # подсветка элемента при drop-on
         if self._drop_on_item and self._drop_parent.isValid():
