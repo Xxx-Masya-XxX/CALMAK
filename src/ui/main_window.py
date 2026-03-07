@@ -8,12 +8,46 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap, QPainter, QColor, QAction
 
+import random
+
 from ..models import BaseObject, Canvas, TextObject
 from ..core import ProjectManager
 from .elements_frame import ElementsPanel
 from .preview_frame import PreviewFrame
 from .properties_frame import PropertiesPanel
 from .settings_dialog import SettingsDialog
+
+
+def _random_color() -> str:
+    """Генерирует случайный яркий цвет в формате HEX."""
+    # Используем HSL для получения ярких цветов
+    h = random.randint(0, 360)  # Hue: 0-360
+    s = random.randint(60, 100)  # Saturation: 60-100%
+    l = random.randint(45, 65)  # Lightness: 45-65%
+    
+    # Конвертируем HSL в RGB
+    c = (1 - abs(2 * l / 100 - 1)) * s / 100
+    x = c * (1 - abs((h / 60) % 2 - 1))
+    m = l / 100 - c / 2
+    
+    if h < 60:
+        r, g, b = c, x, 0
+    elif h < 120:
+        r, g, b = x, c, 0
+    elif h < 180:
+        r, g, b = 0, c, x
+    elif h < 240:
+        r, g, b = 0, x, c
+    elif h < 300:
+        r, g, b = x, 0, c
+    else:
+        r, g, b = c, 0, x
+    
+    r = int((r + m) * 255)
+    g = int((g + m) * 255)
+    b = int((b + m) * 255)
+    
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 
 class MainWindow(QMainWindow):
@@ -281,7 +315,7 @@ class MainWindow(QMainWindow):
                 y=50,
                 width=100,
                 height=100,
-                color="#4CAF50",
+                color=_random_color(),
                 shape_type=shape_type
             )
 
