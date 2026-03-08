@@ -1,4 +1,4 @@
-"""Сцена превью для одного канваса."""
+"""Сцена превью для одного канваса с правильным порядком рендеринга."""
 
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsRectItem
 from PySide6.QtGui import QPen, QBrush, QColor
@@ -19,7 +19,6 @@ class CanvasRectItem(QGraphicsRectItem):
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setAcceptHoverEvents(False)
-        # Включаем обрезку дочерних элементов по границам этого элемента
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemClipsChildrenToShape)
         self.update_appearance()
 
@@ -32,11 +31,27 @@ class CanvasRectItem(QGraphicsRectItem):
 
     def update_size(self):
         """Обновляет размер канваса."""
-        self.setRect(QRectF(0, 0, self.canvas.width, self.canvas.height))
+        self.setRect(QRectF(0, 0, self.canvas.width, canvas.height))
 
 
 class PreviewScene(QGraphicsScene):
-    """Сцена превью для одного канваса."""
+    """Сцена превью для одного канваса.
+
+    Порядок рендеринга (согласно test.txt):
+    - Дочерние элементы рендерятся перед родительскими
+    - Последние элементы в дереве рендерятся первыми (нижний слой)
+    
+    Пример:
+    ROOT
+    ├─ нода 1
+    │  └─ нода 2
+    └─ нода 3
+       ├─ нода 4
+       └─ нода 5
+    
+    Порядок рендеринга: 5 → 4 → 3 → 2 → 1
+    (нода 5 - нижний слой, нода 1 - верхний слой)
+    """
 
     object_selected = Signal(BaseObject)
     object_changed = Signal(BaseObject)
@@ -47,12 +62,12 @@ class PreviewScene(QGraphicsScene):
         self.canvas = canvas
         self._object_items: dict[BaseObject, QGraphicsRectItem] = {}
         self._items_by_id: dict[str, QGraphicsRectItem] = {}
+        self._z_counter = 0
 
         # Добавляем фон канваса
         self.canvas_item = CanvasRectItem(canvas)
         self.addItem(self.canvas_item)
 
-        # Устанавливаем обрезку по границам сцены (канваса)
         self.setSceneRect(0, 0, canvas.width, canvas.height)
         self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
 
@@ -65,9 +80,13 @@ class PreviewScene(QGraphicsScene):
                 self.object_selected.emit(item.obj)
                 break
 
+    def _get_next_z_value(self) -> float:
+        """Получает следующее z-значение для правильного порядка слоёв."""
+        self._z_counter += 1
+        return float(self._z_counter)
+
     def add_object(self, obj: BaseObject):
         """Добавляет объект на сцену."""
-        # Определяем тип объекта и создаём соответствующий элемент
         if isinstance(obj, TextObject):
             graphics_item = TextGraphicsItem(obj)
         elif isinstance(obj, ImageObject):
@@ -75,13 +94,17 @@ class PreviewScene(QGraphicsScene):
         elif isinstance(obj, ShapeObject):
             graphics_item = ShapeGraphicsItem(obj)
         else:
-            # Для BaseObject используем ShapeGraphicsItem
             graphics_item = ShapeGraphicsItem(obj)
 
         # Устанавливаем родителя если есть
         if obj.parent_id and obj.parent_id in self._items_by_id:
             parent_item = self._items_by_id[obj.parent_id]
             graphics_item.setParentItem(parent_item)
+            # Дочерний элемент должен иметь меньший z, чем родитель
+            graphics_item.setZValue(parent_item.zValue() - 1)
+        else:
+            # Корневой объект получает следующее z-значение
+            graphics_item.setZValue(self._get_next_z_value())
 
         self.addItem(graphics_item)
         self._object_items[obj] = graphics_item
@@ -92,9 +115,8 @@ class PreviewScene(QGraphicsScene):
         if obj in self._object_items:
             item = self._object_items[obj]
             # Сначала удаляем дочерние элементы
-            for child_item in item.childItems():
+            for child_item in list(item.childItems()):
                 self.removeItem(child_item)
-                # Находим и удаляем соответствующий объект из словарей
                 for o, i in list(self._object_items.items()):
                     if i == child_item:
                         del self._object_items[o]
@@ -134,7 +156,7 @@ class PreviewScene(QGraphicsScene):
             item.setSelected(False)
 
     def rebuild_object_parent(self, obj: BaseObject):
-        """Перестраивает родительскую связь для объекта."""
+        """Перестраивает родительскую связь для объекта и обновляет z-порядок."""
         if obj not in self._object_items:
             return
 
@@ -142,5 +164,59 @@ class PreviewScene(QGraphicsScene):
         if obj.parent_id and obj.parent_id in self._items_by_id:
             parent_item = self._items_by_id[obj.parent_id]
             item.setParentItem(parent_item)
+            # Дочерний элемент должен иметь меньший z, чем родитель
+            # Используем отрицательное значение относительно родителя
+            item.setZValue(parent_item.zValue() - 1)
         else:
             item.setParentItem(None)
+            # Для корневых объектов используем rebuild_z_order для правильного порядка
+            pass  # z-значение будет установлено через rebuild_z_order
+
+    def rebuild_z_order(self, objects_in_render_order: list[BaseObject]):
+        """Перестраивает z-порядок всех объектов согласно порядку рендеринга.
+
+        Args:
+            objects_in_render_order: Список объектов в порядке рендеринга
+                                     (первый = нижний слой, последний = верхний слой)
+        """
+        # Сбрасываем z-счётчик
+        self._z_counter = 0
+
+        # Назначаем z-значения в порядке рендеринга
+        for z_value, obj in enumerate(objects_in_render_order):
+            if obj in self._object_items:
+                item = self._object_items[obj]
+                item.setZValue(float(z_value))
+
+    def get_objects_in_render_order(self) -> list[BaseObject]:
+        """Получает объекты в порядке рендеринга (от нижнего к верхнему слою).
+
+        Использует пост-порядок обхода дерева (дочерние перед родительскими,
+        последние в списке детей первыми).
+        """
+        result = []
+
+        def collect_objects_post_order(item: QGraphicsRectItem):
+            """Собирает объекты в пост-порядке (дети перед родителями)."""
+            # Сначала обрабатываем дочерние элементы (с конца к началу)
+            for child_item in reversed(item.childItems()):
+                if isinstance(child_item, (TextGraphicsItem, ImageGraphicsItem, ShapeGraphicsItem)):
+                    collect_objects_post_order(child_item)
+            # Затем добавляем сам объект
+            for obj, obj_item in self._object_items.items():
+                if obj_item == item:
+                    result.append(obj)
+                    break
+
+        # Получаем все корневые элементы (без родителя QGraphicsRectItem)
+        root_items = []
+        for item in self._object_items.values():
+            parent = item.parentItem()
+            if parent is None or not isinstance(parent, QGraphicsRectItem):
+                root_items.append(item)
+
+        # Обрабатываем корневые элементы с конца к началу
+        for root_item in reversed(root_items):
+            collect_objects_post_order(root_item)
+
+        return result

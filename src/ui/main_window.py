@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
         self.elements_panel.object_selected.connect(self._on_object_selected)
         self.elements_panel.canvas_context_menu.connect(self._on_canvas_context_menu)
         self.elements_panel.object_parent_changed.connect(self._on_object_parent_changed)
+        self.elements_panel.order_changed.connect(self._on_order_changed)
         self.elements_panel.add_child_requested.connect(self._on_add_child_requested)
 
         # Превью
@@ -415,6 +416,35 @@ class MainWindow(QMainWindow):
     def _on_add_child_requested(self, parent: BaseObject, obj_type: str):
         """Обработчик добавления дочернего объекта."""
         self._add_object(obj_type, parent)
+
+    def _on_order_changed(self, canvas_id: str):
+        """Обработчик изменения порядка объектов в дереве."""
+        scene = self.preview_frame.get_scene(canvas_id)
+        if scene:
+            # Получаем объекты в правильном порядке рендеринга из модели
+            canvas_node = self.elements_panel.tree._model._canvas_nodes.get(canvas_id)
+            if canvas_node:
+                objects_in_order = self._get_objects_in_render_order(canvas_node)
+                scene.rebuild_z_order(objects_in_order)
+
+    def _get_objects_in_render_order(self, canvas_node) -> list[BaseObject]:
+        """Получает объекты в порядке рендеринга (от нижнего к верхнему слою).
+
+        Порядок: дочерние перед родительскими, последние в списке детей первыми.
+        """
+        result = []
+
+        def collect_post_order(node):
+            # Идём с конца к началу (последние дети первыми)
+            for child in reversed(node.children):
+                if child.is_object:
+                    # Сначала обрабатываем дочерние элементы
+                    collect_post_order(child)
+                    # Затем добавляем сам объект
+                    result.append(child.data)
+
+        collect_post_order(canvas_node)
+        return result
 
     def _on_object_added(self, canvas_id: str, obj: BaseObject):
         """Обработчик добавления объекта."""

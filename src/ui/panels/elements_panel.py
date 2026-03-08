@@ -6,16 +6,14 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     QAbstractItemModel, QMimeData, QModelIndex, QPersistentModelIndex,
-    Qt, Signal
+    Qt, Signal, QRect
 )
-from PySide6.QtGui import QAction, QBrush, QColor, QFont
+from PySide6.QtGui import QAction, QBrush, QColor, QFont, QPen
 
 from ...models import BaseObject, Canvas, TextObject
 
 
 class TreeNode:
-    """Узел кастомного дерева."""
-
     __slots__ = ("data", "parent", "children", "row_in_parent")
 
     def __init__(self, data, parent: "TreeNode | None" = None):
@@ -59,7 +57,7 @@ class TreeNode:
 
 
 class SceneTreeModel(QAbstractItemModel):
-    """Кастомная модель для дерева сцены."""
+    order_changed = Signal(str)  # canvas_id при изменении порядка
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -69,7 +67,6 @@ class SceneTreeModel(QAbstractItemModel):
         self._global_index_cache: dict[str, int] = {}
 
     def _rebuild_global_index(self) -> None:
-        """Пересчитывает сквозной DFS-индекс для всех объектов."""
         counter = [1]
 
         def _walk(node: TreeNode) -> None:
@@ -85,7 +82,6 @@ class SceneTreeModel(QAbstractItemModel):
         _walk(self._root)
 
     def global_index_of(self, obj_id: str) -> int | None:
-        """Возвращает глобальный DFS-индекс объекта (1-based)."""
         return self._global_index_cache.get(obj_id)
 
     def index(self, row: int, column: int, parent: QModelIndex = QModelIndex()) -> QModelIndex:
@@ -93,8 +89,7 @@ class SceneTreeModel(QAbstractItemModel):
             return QModelIndex()
         parent_node = self._node(parent)
         if row < len(parent_node.children):
-            child = parent_node.children[row]
-            return self.createIndex(row, column, child)
+            return self.createIndex(row, column, parent_node.children[row])
         return QModelIndex()
 
     def parent(self, index: QModelIndex | QPersistentModelIndex = QModelIndex()) -> QModelIndex:
@@ -116,23 +111,18 @@ class SceneTreeModel(QAbstractItemModel):
         if not index.isValid():
             return None
         node: TreeNode = index.internalPointer()
-
         if role == Qt.ItemDataRole.DisplayRole:
             return node.display_text
-
         if role == Qt.ItemDataRole.UserRole:
             return node.data
-
         if role == Qt.ItemDataRole.ForegroundRole:
             if node.is_canvas:
                 return QBrush(QColor(Qt.GlobalColor.darkBlue))
-
         if role == Qt.ItemDataRole.FontRole:
             if node.is_canvas:
                 f = QFont()
                 f.setBold(True)
                 return f
-
         return None
 
     def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
@@ -181,6 +171,7 @@ class SceneTreeModel(QAbstractItemModel):
             return False
 
         if row >= 0:
+            # Вставка между элементами
             if not parent.isValid():
                 return False
             parent_node: TreeNode = parent.internalPointer()
@@ -192,6 +183,7 @@ class SceneTreeModel(QAbstractItemModel):
                 return False
             return True
 
+        # Drop на элемент
         if not parent.isValid():
             return False
         target_node: TreeNode = parent.internalPointer()
@@ -212,20 +204,14 @@ class SceneTreeModel(QAbstractItemModel):
 
         obj_id = data.data("application/x-scene-obj-id").toStdString()
         obj_node = self._obj_nodes[obj_id]
-
-        if row >= 0:
-            parent_node: TreeNode = parent.internalPointer()
-            new_parent_id = parent_node.data.id if parent_node.is_object else None
-        else:
-            parent_node = parent.internalPointer()
-            new_parent_id = parent_node.data.id if parent_node.is_object else None
+        parent_node: TreeNode = parent.internalPointer()
+        new_parent_id = parent_node.data.id if parent_node.is_object else None
 
         self._recalc_coords(obj_node.data, new_parent_id)
 
         old_parent_node = obj_node.parent
         old_row = obj_node.row_in_parent
-        old_parent_index = self._index_for_node(old_parent_node)
-        self.beginRemoveRows(old_parent_index, old_row, old_row)
+        self.beginRemoveRows(self._index_for_node(old_parent_node), old_row, old_row)
         old_parent_node.remove_child(obj_node)
         self.endRemoveRows()
 
@@ -234,11 +220,15 @@ class SceneTreeModel(QAbstractItemModel):
             insert_row = max(0, insert_row - 1)
         insert_row = min(insert_row, len(parent_node.children))
 
-        new_parent_index = self._index_for_node(parent_node)
-        self.beginInsertRows(new_parent_index, insert_row, insert_row)
+        self.beginInsertRows(self._index_for_node(parent_node), insert_row, insert_row)
         parent_node.insert_child(insert_row, obj_node)
         self.endInsertRows()
         self._rebuild_global_index()
+
+        # Отправляем сигнал об изменении порядка
+        canvas_node = self._canvas_for_node(parent_node)
+        if canvas_node and canvas_node.is_canvas:
+            self.order_changed.emit(canvas_node.data.id)
 
         return True
 
@@ -259,20 +249,15 @@ class SceneTreeModel(QAbstractItemModel):
         self.beginRemoveRows(QModelIndex(), row, row)
         self._root.remove_child(node)
         self.endRemoveRows()
-        for obj_node in list(self._obj_nodes.values()):
-            if self._canvas_for_node(obj_node) is None:
-                del self._obj_nodes[obj_node.data.id]
+        for obj_id in list(self._obj_nodes):
+            if self._canvas_for_node(self._obj_nodes[obj_id]) is None:
+                del self._obj_nodes[obj_id]
 
     def add_object(self, canvas_id: str, obj: BaseObject) -> QModelIndex:
         canvas_node = self._canvas_nodes.get(canvas_id)
         if canvas_node is None:
             return QModelIndex()
-
-        if obj.parent_id and obj.parent_id in self._obj_nodes:
-            parent_node = self._obj_nodes[obj.parent_id]
-        else:
-            parent_node = canvas_node
-
+        parent_node = self._obj_nodes[obj.parent_id] if obj.parent_id and obj.parent_id in self._obj_nodes else canvas_node
         parent_index = self._index_for_node(parent_node)
         row = len(parent_node.children)
         self.beginInsertRows(parent_index, row, row)
@@ -288,9 +273,8 @@ class SceneTreeModel(QAbstractItemModel):
         if node is None:
             return
         parent_node = node.parent
-        parent_index = self._index_for_node(parent_node)
         row = node.row_in_parent
-        self.beginRemoveRows(parent_index, row, row)
+        self.beginRemoveRows(self._index_for_node(parent_node), row, row)
         parent_node.remove_child(node)
         self.endRemoveRows()
         self._rebuild_global_index()
@@ -299,30 +283,20 @@ class SceneTreeModel(QAbstractItemModel):
         node = self._obj_nodes.get(obj.id)
         if node is None:
             return
-
         self._recalc_coords(obj, new_parent_id)
-
         canvas_node = self._canvas_nodes.get(canvas_id)
         if canvas_node is None:
             return
-
-        if new_parent_id and new_parent_id in self._obj_nodes:
-            new_parent_node = self._obj_nodes[new_parent_id]
-        else:
-            new_parent_node = canvas_node
-
+        new_parent_node = self._obj_nodes[new_parent_id] if new_parent_id and new_parent_id in self._obj_nodes else canvas_node
         if node.parent is new_parent_node:
             return
-
         old_parent = node.parent
         old_row = node.row_in_parent
         self.beginRemoveRows(self._index_for_node(old_parent), old_row, old_row)
         old_parent.remove_child(node)
         self.endRemoveRows()
-
-        new_parent_index = self._index_for_node(new_parent_node)
         insert_row = len(new_parent_node.children)
-        self.beginInsertRows(new_parent_index, insert_row, insert_row)
+        self.beginInsertRows(self._index_for_node(new_parent_node), insert_row, insert_row)
         new_parent_node.append_child(node)
         self.endInsertRows()
         self._rebuild_global_index()
@@ -341,14 +315,10 @@ class SceneTreeModel(QAbstractItemModel):
             self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.DecorationRole])
 
     def node_for_index(self, index: QModelIndex) -> TreeNode | None:
-        if not index.isValid():
-            return None
-        return index.internalPointer()
+        return index.internalPointer() if index.isValid() else None
 
     def _node(self, index: QModelIndex) -> TreeNode:
-        if not index.isValid():
-            return self._root
-        return index.internalPointer()
+        return index.internalPointer() if index.isValid() else self._root
 
     def _index_for_node(self, node: TreeNode) -> QModelIndex:
         if node is self._root or node.parent is None:
@@ -364,16 +334,12 @@ class SceneTreeModel(QAbstractItemModel):
         return None
 
     def _canvas_id_for_node(self, node: TreeNode) -> str | None:
-        canvas_node = self._canvas_for_node(node)
-        if canvas_node and canvas_node.is_canvas:
-            return canvas_node.data.id
-        return None
+        cn = self._canvas_for_node(node)
+        return cn.data.id if cn and cn.is_canvas else None
 
     def get_canvas_id_for_obj(self, obj: BaseObject) -> str | None:
         node = self._obj_nodes.get(obj.id)
-        if node:
-            return self._canvas_id_for_node(node)
-        return None
+        return self._canvas_id_for_node(node) if node else None
 
     def _is_descendant(self, potential_child: TreeNode, potential_parent: TreeNode) -> bool:
         cur = potential_child.parent
@@ -384,35 +350,22 @@ class SceneTreeModel(QAbstractItemModel):
         return False
 
     def _recalc_coords(self, obj: BaseObject, new_parent_id: str | None) -> None:
-        """Пересчитывает координаты при смене родителя."""
-        old_parent_node = None
-        if obj.parent_id and obj.parent_id in self._obj_nodes:
-            old_parent_node = self._obj_nodes[obj.parent_id]
-
+        old_parent_node = self._obj_nodes.get(obj.parent_id) if obj.parent_id else None
         if old_parent_node:
             gp = old_parent_node.data.get_global_position()
-            gx = gp[0] + obj.x
-            gy = gp[1] + obj.y
+            gx, gy = gp[0] + obj.x, gp[1] + obj.y
         else:
             gx, gy = obj.x, obj.y
-
-        new_parent_obj = None
-        if new_parent_id and new_parent_id in self._obj_nodes:
-            new_parent_obj = self._obj_nodes[new_parent_id].data
-
+        new_parent_obj = self._obj_nodes[new_parent_id].data if new_parent_id and new_parent_id in self._obj_nodes else None
         obj.parent_id = new_parent_id
         obj._parent = new_parent_obj
-
         if new_parent_obj:
             np_ = new_parent_obj.get_global_position()
-            obj.x = gx - np_[0]
-            obj.y = gy - np_[1]
+            obj.x, obj.y = gx - np_[0], gy - np_[1]
         else:
-            obj.x = gx
-            obj.y = gy
+            obj.x, obj.y = gx, gy
 
     def all_obj_nodes_for_canvas(self, canvas_id: str) -> dict[str, TreeNode]:
-        """Возвращает все объектные узлы, принадлежащие данному канвасу."""
         result = {}
         canvas_node = self._canvas_nodes.get(canvas_id)
         if canvas_node is None:
@@ -427,13 +380,16 @@ class SceneTreeModel(QAbstractItemModel):
                 self._collect_obj_nodes(child, out)
 
 
+# ---------------------------------------------------------------------------
+# Делегат — рисует индекс и индикатор вставки
+# ---------------------------------------------------------------------------
+
 class _DropLineDelegate(QStyledItemDelegate):
-    """Делегат, подсвечивающий строку-цель при drag-over."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._drop_row: int = -1
-        self._drop_parent: QModelIndex = QModelIndex()
+        self._drop_parent: QPersistentModelIndex = QPersistentModelIndex()
         self._drop_on_item: bool = False
 
     def set_drop_target(self, row: int, parent: QModelIndex, on_item: bool) -> None:
@@ -443,7 +399,7 @@ class _DropLineDelegate(QStyledItemDelegate):
 
     def clear_drop_target(self) -> None:
         self._drop_row = -1
-        self._drop_parent = QModelIndex()
+        self._drop_parent = QPersistentModelIndex()
         self._drop_on_item = False
 
     def paint(self, painter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
@@ -452,14 +408,14 @@ class _DropLineDelegate(QStyledItemDelegate):
         view: CustomTreeView = self.parent()
         model = view.model()
 
+        # ── Глобальный индекс ────────────────────────────────────────────
         if hasattr(model, "node_for_index") and hasattr(model, "global_index_of"):
             node = model.node_for_index(index)
             if node is not None and node.is_object:
                 g_idx = model.global_index_of(node.data.id)
                 if g_idx is not None:
-                    idx_text = str(g_idx)
                     painter.save()
-                    badge_color = QColor(190, 190, 190)
+                    idx_text = str(g_idx)
                     small_font = painter.font()
                     small_font.setPointSizeF(max(6.5, small_font.pointSizeF() - 2))
                     painter.setFont(small_font)
@@ -468,18 +424,17 @@ class _DropLineDelegate(QStyledItemDelegate):
                     badge_h = fm.height() + 2
                     badge_x = option.rect.right() - badge_w - 4
                     badge_y = option.rect.top() + (option.rect.height() - badge_h) // 2
-                    from PySide6.QtCore import QRect
                     badge_rect = QRect(badge_x, badge_y, badge_w, badge_h)
-                    painter.setBrush(QColor(30, 30, 30, 255))
+                    painter.setBrush(QColor(30, 30, 30, 220))
                     painter.setPen(Qt.PenStyle.NoPen)
                     painter.drawRoundedRect(badge_rect, 3, 3)
-                    painter.setPen(badge_color)
+                    painter.setPen(QColor(190, 190, 190))
                     painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, idx_text)
                     painter.restore()
 
+        # ── Подсветка drop-on-item ────────────────────────────────────────
         if self._drop_on_item and self._drop_parent.isValid():
-            target_index = QModelIndex(self._drop_parent)
-            if index == target_index:
+            if index == QModelIndex(self._drop_parent):
                 painter.save()
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QColor(0, 120, 215, 40))
@@ -487,42 +442,49 @@ class _DropLineDelegate(QStyledItemDelegate):
                 painter.restore()
             return
 
-        if self._drop_row < 0:
+        # ── Линия вставки между элементами ───────────────────────────────
+        if self._drop_row < 0 or not self._drop_parent.isValid():
             return
 
-        parent_index = QModelIndex(self._drop_parent) if self._drop_parent.isValid() else QModelIndex()
+        parent_index = QModelIndex(self._drop_parent)
+        row_count = model.rowCount(parent_index)
 
-        if self._drop_row < model.rowCount(parent_index):
+        # Какой элемент рисует линию?
+        # Если вставляем перед строкой N — линия сверху строки N
+        # Если вставляем после последнего — линия снизу последнего
+        if self._drop_row < row_count:
             target_idx = model.index(self._drop_row, 0, parent_index)
+            draw_at_top = True
         else:
-            r = model.rowCount(parent_index) - 1
-            if r < 0:
+            if row_count == 0:
                 return
-            target_idx = model.index(r, 0, parent_index)
+            target_idx = model.index(row_count - 1, 0, parent_index)
+            draw_at_top = False
 
         if index != target_idx:
             return
 
-        painter.save()
-        from PySide6.QtGui import QPen
-        pen = QPen(QColor(0, 120, 215), 2)
-        painter.setPen(pen)
-
         rect = option.rect
-        if self._drop_row < model.rowCount(parent_index):
-            y = rect.top()
-        else:
-            y = rect.bottom()
+        y = rect.top() if draw_at_top else rect.bottom()
 
-        indent = view.indentation() * self._nesting_level(target_idx)
-        painter.drawLine(indent + 4, y, rect.right() - 4, y)
+        # Отступ по уровню вложенности
+        level = 0
+        p = target_idx.parent()
+        while p.isValid():
+            level += 1
+            p = p.parent()
+        x_start = view.indentation() * (level + 1) + 4
+        x_end = rect.right() - 4
 
+        painter.save()
+        painter.setPen(QPen(QColor(0, 120, 215), 2))
+        painter.drawLine(x_start, y, x_end, y)
+        # Кружки на концах
         r = 4
         painter.setBrush(QColor(0, 120, 215))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(indent + 4 - r // 2, y - r // 2, r, r)
-        painter.drawEllipse(rect.right() - 4 - r // 2, y - r // 2, r, r)
-
+        painter.drawEllipse(x_start - r // 2, y - r // 2, r, r)
+        painter.drawEllipse(x_end - r // 2, y - r // 2, r, r)
         painter.restore()
 
     def _nesting_level(self, index: QModelIndex) -> int:
@@ -534,12 +496,16 @@ class _DropLineDelegate(QStyledItemDelegate):
         return level
 
 
+# ---------------------------------------------------------------------------
+# CustomTreeView
+# ---------------------------------------------------------------------------
+
 class CustomTreeView(QTreeView):
-    """QTreeView с drag-and-drop и контекстным меню для сцены."""
 
     canvas_selected = Signal(str)
     object_selected = Signal(BaseObject)
     object_parent_changed = Signal(BaseObject)
+    order_changed = Signal(str)  # Сигнал об изменении порядка (canvas_id)
     add_child_requested = Signal(object, str)
     canvas_context_menu = Signal(object)
 
@@ -555,7 +521,8 @@ class CustomTreeView(QTreeView):
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.setDropIndicatorShown(False)
+        self.setDropIndicatorShown(False)   # рисуем свой
+        self.setDragDropOverwriteMode(False)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         self._delegate = _DropLineDelegate(self)
@@ -564,13 +531,177 @@ class CustomTreeView(QTreeView):
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.clicked.connect(self._on_clicked)
         self.doubleClicked.connect(self._on_double_clicked)
+        self._model.rowsInserted.connect(lambda parent, *_: self.expand(parent))
+        self._model.order_changed.connect(self.order_changed.emit)
 
-        # Drag-over tracking
-        self.setAcceptDrops(True)
-        self.setDragDropOverwriteMode(False)
+    # ── совместимость ────────────────────────────────────────────────────
 
-    def _on_clicked(self, index: QModelIndex):
-        """Обработчик клика."""
+    @property
+    def _canvas_items(self) -> dict[str, QModelIndex]:
+        return {cid: self._model._index_for_node(n) for cid, n in self._model._canvas_nodes.items()}
+
+    @property
+    def _object_items(self) -> dict[str, dict[str, QModelIndex]]:
+        result = {}
+        for cid in self._model._canvas_nodes:
+            result[cid] = {oid: self._model._index_for_node(n)
+                           for oid, n in self._model.all_obj_nodes_for_canvas(cid).items()}
+        return result
+
+    @property
+    def _obj_to_item(self) -> dict[str, QModelIndex]:
+        return {oid: self._model._index_for_node(n) for oid, n in self._model._obj_nodes.items()}
+
+    def setCurrentItem(self, item: QModelIndex) -> None:
+        if item is not None and item.isValid():
+            self.setCurrentIndex(item)
+
+    # ── публичные методы ─────────────────────────────────────────────────
+
+    def add_canvas(self, canvas: Canvas) -> None:
+        self._model.add_canvas(canvas)
+        node = self._model._canvas_nodes.get(canvas.id)
+        if node:
+            self.expand(self._model._index_for_node(node))
+
+    def remove_canvas(self, canvas_id: str) -> None:
+        self._model.remove_canvas(canvas_id)
+
+    def add_object(self, canvas_id: str, obj: BaseObject) -> None:
+        idx = self._model.add_object(canvas_id, obj)
+        if idx.isValid():
+            self.expand(self._model.parent(idx))
+
+    def remove_object(self, canvas_id: str, obj: BaseObject) -> None:
+        self._model.remove_object(canvas_id, obj)
+
+    def move_object(self, canvas_id: str, obj: BaseObject, new_parent_id: str | None) -> None:
+        self._model.move_object(canvas_id, obj, new_parent_id)
+
+    def update_canvas_name(self, canvas: Canvas) -> None:
+        self._model.update_canvas_name(canvas)
+
+    def update_object_name(self, canvas_id: str, obj: BaseObject) -> None:
+        self._model.update_object(canvas_id, obj)
+
+    def update_object_lock(self, canvas_id: str, obj: BaseObject) -> None:
+        self._model.update_object(canvas_id, obj)
+
+    def get_canvas_id_for_object(self, obj: BaseObject) -> str | None:
+        return self._model.get_canvas_id_for_obj(obj)
+
+    def get_selected_canvas(self) -> Canvas | None:
+        node = self._model.node_for_index(self.currentIndex())
+        if node and node.is_canvas:
+            return node.data
+        if node and node.is_object:
+            cn = self._model._canvas_for_node(node)
+            return cn.data if cn else None
+        return None
+
+    def get_selected_object(self) -> BaseObject | None:
+        node = self._model.node_for_index(self.currentIndex())
+        return node.data if node and node.is_object else None
+
+    # ── drag & drop ───────────────────────────────────────────────────────
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasFormat("application/x-scene-obj-id"):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        if not event.mimeData().hasFormat("application/x-scene-obj-id"):
+            event.ignore()
+            return
+
+        pos = event.position().toPoint()
+        index = self.indexAt(pos)
+
+        if not index.isValid():
+            self._delegate.clear_drop_target()
+            self.viewport().update()
+            event.ignore()
+            return
+
+        node = self._model.node_for_index(index)
+        if node is None or not node.is_object:
+            self._delegate.clear_drop_target()
+            self.viewport().update()
+            event.ignore()
+            return
+
+        rect = self.visualRect(index)
+        h = rect.height()
+        rel_y = pos.y() - rect.top()
+        zone = h * 0.28   # верхние/нижние 28% — зоны вставки, центр — дочерний
+
+        if rel_y < zone:
+            # вставить ПЕРЕД этим элементом
+            drop_row = index.row()
+            drop_parent = self._model.parent(index)
+            on_item = False
+        elif rel_y > h - zone:
+            # вставить ПОСЛЕ этого элемента
+            drop_row = index.row() + 1
+            drop_parent = self._model.parent(index)
+            on_item = False
+        else:
+            # сделать дочерним
+            drop_row = -1
+            drop_parent = index
+            on_item = True
+
+        can = self._model.canDropMimeData(
+            event.mimeData(), Qt.DropAction.MoveAction,
+            drop_row, 0, drop_parent)
+
+        if can:
+            self._delegate.set_drop_target(drop_row, drop_parent, on_item)
+            event.acceptProposedAction()
+        else:
+            self._delegate.clear_drop_target()
+            event.ignore()
+
+        self.viewport().update()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._delegate.clear_drop_target()
+        self.viewport().update()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:
+        if not event.mimeData().hasFormat("application/x-scene-obj-id"):
+            event.ignore()
+            return
+
+        drop_row = self._delegate._drop_row
+        drop_parent_pi = self._delegate._drop_parent
+        on_item = self._delegate._drop_on_item
+
+        self._delegate.clear_drop_target()
+        self.viewport().update()
+
+        drop_parent = QModelIndex(drop_parent_pi) if drop_parent_pi.isValid() else QModelIndex()
+        row_arg = -1 if on_item else drop_row
+
+        ok = self._model.dropMimeData(
+            event.mimeData(), Qt.DropAction.MoveAction,
+            row_arg, 0, drop_parent)
+
+        if ok:
+            event.acceptProposedAction()
+            obj_id = event.mimeData().data("application/x-scene-obj-id").toStdString()
+            node = self._model._obj_nodes.get(obj_id)
+            if node:
+                self.object_parent_changed.emit(node.data)
+        else:
+            event.ignore()
+
+    # ── обработчики ───────────────────────────────────────────────────────
+
+    def _on_clicked(self, index: QModelIndex) -> None:
         node = self._model.node_for_index(index)
         if node:
             if node.is_canvas:
@@ -578,100 +709,50 @@ class CustomTreeView(QTreeView):
             elif node.is_object:
                 self.object_selected.emit(node.data)
 
-    def _on_double_clicked(self, index: QModelIndex):
-        """Обработчик двойного клика - разворачивание/сворачивание."""
+    def _on_double_clicked(self, index: QModelIndex) -> None:
         if self.isExpanded(index):
             self.collapse(index)
         else:
             self.expand(index)
 
-    def _show_context_menu(self, pos):
-        """Показывает контекстное меню."""
+    def _show_context_menu(self, pos) -> None:
         index = self.indexAt(pos)
         node = self._model.node_for_index(index)
-
         if node is None:
             return
-
         menu = QMenu(self)
-
         if node.is_canvas:
-            # Меню для канваса
-            add_rect_action = menu.addAction("Добавить прямоугольник")
-            add_text_action = menu.addAction("Добавить текст")
-
-            add_rect_action.triggered.connect(lambda: self._on_add_object("rect", node.data))
-            add_text_action.triggered.connect(lambda: self._on_add_object("text", node.data))
-
-            self.canvas_context_menu.emit(node.data)
-
+            add_rect = menu.addAction("Добавить прямоугольник")
+            add_text = menu.addAction("Добавить текст")
+            add_rect.triggered.connect(lambda: self.canvas_context_menu.emit(node.data))
+            add_text.triggered.connect(lambda: self.canvas_context_menu.emit(node.data))
         elif node.is_object:
-            # Меню для объекта
-            add_child_rect = menu.addAction("Добавить дочерний прямоугольник")
-            add_child_text = menu.addAction("Добавить дочерний текст")
+            add_rect = menu.addAction("Добавить дочерний прямоугольник")
+            add_text = menu.addAction("Добавить дочерний текст")
+            add_rect.triggered.connect(lambda: self.add_child_requested.emit(node.data, "rect"))
+            add_text.triggered.connect(lambda: self.add_child_requested.emit(node.data, "text"))
+        menu.exec(self.viewport().mapToGlobal(pos))
 
-            add_child_rect.triggered.connect(
-                lambda: self.add_child_requested.emit(node.data, "rect")
-            )
-            add_child_text.triggered.connect(
-                lambda: self.add_child_requested.emit(node.data, "text")
-            )
 
-    def _on_add_object(self, obj_type: str, target):
-        """Добавляет объект."""
-        self.canvas_context_menu.emit(target)
-
-    def dragEnterEvent(self, event):
-        """Обработка начала перетаскивания."""
-        if event.mimeData().hasFormat("application/x-scene-obj-id"):
-            event.acceptProposedAction()
-        else:
-            super().dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        """Обработка перемещения при перетаскивании."""
-        if event.mimeData().hasFormat("application/x-scene-obj-id"):
-            event.acceptProposedAction()
-
-            # Определяем target для подсветки
-            index = self.indexAt(event.position().toPoint())
-            if index.isValid():
-                node = self._model.node_for_index(index)
-                if node and node.is_object:
-                    self._delegate.set_drop_target(node.row_in_parent, index.parent(), True)
-                else:
-                    self._delegate.clear_drop_target()
-            else:
-                self._delegate.clear_drop_target()
-            self.viewport().update()
-        else:
-            super().dragMoveEvent(event)
-
-    def dragLeaveEvent(self, event):
-        """Обработка завершения перетаскивания."""
-        self._delegate.clear_drop_target()
-        self.viewport().update()
-        super().dragLeaveEvent(event)
-
+# ---------------------------------------------------------------------------
+# ElementsPanel
+# ---------------------------------------------------------------------------
 
 class ElementsPanel(QFrame):
-    """Панель элементов (дерево объектов)."""
 
     canvas_selected = Signal(str)
     object_selected = Signal(BaseObject)
     object_parent_changed = Signal(BaseObject)
+    order_changed = Signal(str)  # canvas_id при изменении порядка
     add_child_requested = Signal(object, str)
     canvas_context_menu = Signal(object)
 
     def __init__(self, main_window=None):
         super().__init__()
         self.main_window = main_window
-
-        # Layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Заголовок
         header_frame = QFrame()
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(5, 5, 5, 5)
@@ -682,41 +763,33 @@ class ElementsPanel(QFrame):
         header_layout.addStretch()
         layout.addWidget(header_frame)
 
-        # Дерево
         self.tree = CustomTreeView()
         layout.addWidget(self.tree)
 
-        # Подключаем сигналы
         self.tree.canvas_selected.connect(self.canvas_selected.emit)
         self.tree.object_selected.connect(self.object_selected.emit)
         self.tree.object_parent_changed.connect(self.object_parent_changed.emit)
+        self.tree.order_changed.connect(self.order_changed.emit)
         self.tree.add_child_requested.connect(self.add_child_requested.emit)
         self.tree.canvas_context_menu.connect(self.canvas_context_menu.emit)
 
     def add_canvas(self, canvas: Canvas):
-        """Добавляет канвас в дерево."""
         self.tree._model.add_canvas(canvas)
 
     def remove_canvas(self, canvas_id: str):
-        """Удаляет канвас из дерева."""
         self.tree._model.remove_canvas(canvas_id)
 
     def add_object(self, canvas_id: str, obj: BaseObject):
-        """Добавляет объект в дерево."""
         self.tree._model.add_object(canvas_id, obj)
 
     def remove_object(self, canvas_id: str, obj: BaseObject):
-        """Удаляет объект из дерева."""
         self.tree._model.remove_object(canvas_id, obj)
 
     def update_canvas_name(self, canvas: Canvas):
-        """Обновляет имя канваса."""
         self.tree._model.update_canvas_name(canvas)
 
     def update_object_name(self, canvas_id: str, obj: BaseObject):
-        """Обновляет имя объекта."""
         self.tree._model.update_object(canvas_id, obj)
 
     def update_object_lock(self, canvas_id: str, obj: BaseObject):
-        """Обновляет иконку замка объекта."""
         self.tree._model.update_object(canvas_id, obj)
