@@ -7,15 +7,14 @@ from PySide6.QtCore import Qt
 from src.ui.main_window import MainWindow
 
 
-
 def main():
     """Запускает приложение."""
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    
+
     window = MainWindow()
     window.show()
-    
+
     sys.exit(app.exec())
 
 

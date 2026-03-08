@@ -1,17 +1,19 @@
 """Модель текстового объекта."""
 
-import uuid
 from dataclasses import dataclass, field
+import uuid
+from typing import Optional
+
 from .base_object import BaseObject
 
 
 @dataclass
 class TextObject(BaseObject):
     """Текстовый объект для рендеринга.
-    
+
     Наследуется от BaseObject и добавляет текстовые свойства.
     """
-    
+
     name: str = "Text"
     x: float = 0.0
     y: float = 0.0
@@ -20,7 +22,7 @@ class TextObject(BaseObject):
     color: str = "#000000"  # Не используется для текста
     visible: bool = True
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    
+
     # Текстовые свойства
     text: str = "Text"
     font_family: str = "Arial"
@@ -29,21 +31,24 @@ class TextObject(BaseObject):
     font_italic: bool = False
     font_underline: bool = False
     text_color: str = "#000000"
-    
+
     # Выравнивание текста
     text_align_h: str = "left"  # left, center, right
     text_align_v: str = "top"  # top, center, bottom
-    
+
+    # Роль для подстановки текста (для CalendarNode)
+    role: str | None = None
+
     def __hash__(self):
         """Хеш по id."""
         return hash(self.id)
-    
+
     def __eq__(self, other):
         """Сравнение по id."""
         if isinstance(other, TextObject):
             return self.id == other.id
         return False
-    
+
     def to_dict(self) -> dict:
         """Сериализует объект в словарь."""
         base = super().to_dict()
@@ -57,6 +62,7 @@ class TextObject(BaseObject):
             "text_color": self.text_color,
             "text_align_h": self.text_align_h,
             "text_align_v": self.text_align_v,
+            "role": self.role,
         })
         return base
 
@@ -90,4 +96,5 @@ class TextObject(BaseObject):
             text_align_v=data.get("text_align_v", "top"),
             locked=data.get("locked", False),
             rotation=data.get("rotation", 0.0),
+            role=data.get("role"),
         )

@@ -2,10 +2,7 @@
 
 from dataclasses import dataclass, field
 import uuid
-from typing import TYPE_CHECKING, Optional
-
-if TYPE_CHECKING:
-    from ..models import BaseObject
+from typing import Optional
 
 
 @dataclass
@@ -14,7 +11,7 @@ class BaseObject:
 
     Представляет собой квадрат/прямоугольник с позицией и размерами.
     Поддерживает иерархию через parent_id.
-    
+
     Координаты:
     - x, y - локальные координаты относительно родителя (если есть) или глобальные (если нет)
     - При наличии родителя x, y хранят позицию относительно родителя
@@ -86,7 +83,7 @@ class BaseObject:
         """Возвращает глобальные координаты объекта (на сцене)."""
         if self._parent is None:
             return (self.x, self.y)
-        
+
         parent_global = self._parent.get_global_position()
         return (parent_global[0] + self.x, parent_global[1] + self.y)
 
@@ -129,7 +126,7 @@ class BaseObject:
         """Конвертирует глобальные координаты в локальные для дочернего объекта."""
         if self._parent is None:
             return (x, y)
-        
+
         parent_global = self._parent.get_global_position()
         return (x - parent_global[0], y - parent_global[1])
 
@@ -154,7 +151,7 @@ class BaseObject:
         gx, gy = self.get_global_position()
         return (gx <= px <= gx + self.width and
                 gy <= py <= gy + self.height)
-    
+
     def to_dict(self) -> dict:
         """Сериализует объект в словарь."""
         return {

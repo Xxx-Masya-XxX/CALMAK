@@ -1,7 +1,6 @@
 """Модели приложения."""
 
-from .base_object import BaseObject
 from .canvas import Canvas
-from .text_object import TextObject
+from .objects import BaseObject, TextObject, ImageObject, ShapeObject
 
-__all__ = ["BaseObject", "Canvas", "TextObject"]
+__all__ = ["Canvas", "BaseObject", "TextObject", "ImageObject", "ShapeObject"]

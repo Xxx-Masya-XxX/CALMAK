@@ -1,13 +1,15 @@
 """UI компоненты приложения."""
 
 from .main_window import MainWindow
-from .elements_frame import ElementsPanel
-from .preview_frame import PreviewFrame
-from .properties_frame import PropertiesPanel
+from .panels import ElementsPanel, PropertiesPanel
+from .preview import PreviewFrame
+from .dialogs import SettingsDialog, TextEditorDialog
 
 __all__ = [
     "MainWindow",
     "ElementsPanel",
-    "PreviewFrame",
     "PropertiesPanel",
+    "PreviewFrame",
+    "SettingsDialog",
+    "TextEditorDialog",
 ]

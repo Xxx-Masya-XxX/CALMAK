@@ -1,35 +1,34 @@
 """Главное окно приложения."""
 
+import random
+
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QSplitter,
     QVBoxLayout, QPushButton, QFrame, QMessageBox, QMenu,
     QFileDialog, QApplication
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QPainter, QColor, QAction
-
-import random
+from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QFont
 
 from ..models import BaseObject, Canvas, TextObject
-from ..core import ProjectManager
-from .elements_frame import ElementsPanel
-from .preview_frame import PreviewFrame
-from .properties_frame import PropertiesPanel
-from .settings_dialog import SettingsDialog
+from ..controllers import SceneController
+from ..services import export_to_png
+from ..ui.panels import ElementsPanel, PropertiesPanel
+from ..ui.preview import PreviewFrame
+from ..ui.dialogs import SettingsDialog
+from ..config import load_settings, save_settings
 
 
 def _random_color() -> str:
     """Генерирует случайный яркий цвет в формате HEX."""
-    # Используем HSL для получения ярких цветов
-    h = random.randint(0, 360)  # Hue: 0-360
-    s = random.randint(60, 100)  # Saturation: 60-100%
-    l = random.randint(45, 65)  # Lightness: 45-65%
-    
-    # Конвертируем HSL в RGB
+    h = random.randint(0, 360)
+    s = random.randint(60, 100)
+    l = random.randint(45, 65)
+
     c = (1 - abs(2 * l / 100 - 1)) * s / 100
     x = c * (1 - abs((h / 60) % 2 - 1))
     m = l / 100 - c / 2
-    
+
     if h < 60:
         r, g, b = c, x, 0
     elif h < 120:
@@ -42,18 +41,17 @@ def _random_color() -> str:
         r, g, b = x, 0, c
     else:
         r, g, b = c, 0, x
-    
+
     r = int((r + m) * 255)
     g = int((g + m) * 255)
     b = int((b + m) * 255)
-    
+
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
 class MainWindow(QMainWindow):
     """Главное окно приложения."""
-    
-    # Стили для тем
+
     LIGHT_THEME = """
         QMainWindow { background-color: #ffffff; }
         QTreeWidget { background-color: #ffffff; color: #000000; }
@@ -70,7 +68,7 @@ class MainWindow(QMainWindow):
         QMenuBar::item:selected { background-color: #e0e0e0; }
         QDialog { background-color: #ffffff; color: #000000; }
     """
-    
+
     DARK_THEME = """
         QMainWindow { background-color: #2b2b2b; }
         QTreeWidget { background-color: #3c3c3c; color: #ffffff; }
@@ -93,9 +91,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("CALMAK - Редактор")
         self.setMinimumSize(1200, 800)
 
-        # Менеджер проекта
-        self.project = ProjectManager()
-        # Создаём меню
+        # Контроллер сцены
+        self.controller = SceneController()
+
+        # Меню
         self._create_menu_bar()
 
         # Центральный виджет
@@ -107,7 +106,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # Создаём сплиттер для панелей
+        # Сплиттер
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Левая панель - дерево объектов
@@ -121,24 +120,23 @@ class MainWindow(QMainWindow):
             "Дочерние объекты перемещаются вместе с родителем"
         )
         splitter.addWidget(self.elements_panel)
-        
+
         # Центральная панель - превью
         preview_container = QFrame()
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Панель инструментов превью
         self.toolbar = QFrame()
         self.toolbar.setObjectName("toolbar")
         self.toolbar.setStyleSheet("background-color: #f0f0f0; padding: 5px;")
         toolbar_layout = QHBoxLayout(self.toolbar)
         toolbar_layout.setContentsMargins(5, 5, 5, 5)
-        
+
         self.add_canvas_btn = QPushButton("Добавить канвас")
         self.add_canvas_btn.clicked.connect(self._add_canvas)
         toolbar_layout.addWidget(self.add_canvas_btn)
-        
-        # Кнопка добавления объекта с меню
+
         self.add_object_btn = QPushButton("Добавить объект")
         self.add_object_btn.setMenu(self._create_object_menu())
         toolbar_layout.addWidget(self.add_object_btn)
@@ -146,7 +144,6 @@ class MainWindow(QMainWindow):
         toolbar_layout.addStretch()
 
         # Кнопки управления зумом
-        from PySide6.QtGui import QFont
         self.zoom_out_btn = QPushButton("−")
         self.zoom_out_btn.setFixedSize(30, 30)
         self.zoom_out_btn.setFont(QFont("Arial", 14, QFont.Bold))
@@ -167,7 +164,6 @@ class MainWindow(QMainWindow):
         self.zoom_in_btn.clicked.connect(self._zoom_in)
         toolbar_layout.addWidget(self.zoom_in_btn)
 
-        # Кнопка экспорта
         self.export_btn = QPushButton("Экспорт в PNG")
         self.export_btn.clicked.connect(self._export_to_png)
         toolbar_layout.addWidget(self.export_btn)
@@ -176,42 +172,56 @@ class MainWindow(QMainWindow):
 
         self.preview_frame = PreviewFrame(self)
         preview_layout.addWidget(self.preview_frame, 1)
-        
+
         splitter.addWidget(preview_container)
         splitter.setStretchFactor(1, 1)
-        
+
         # Правая панель - свойства
         self.properties_panel = PropertiesPanel(self)
         self.properties_panel.setMinimumWidth(250)
         self.properties_panel.setMaximumWidth(400)
         splitter.addWidget(self.properties_panel)
         splitter.setStretchFactor(2, 0)
-        
+
         main_layout.addWidget(splitter)
-        
+
         # Подключаем сигналы
+        self._connect_signals()
+
+        # Загружаем настройки
+        self.load_settings()
+
+        # Добавляем первый канвас
+        self._add_canvas()
+
+    def _connect_signals(self):
+        """Подключает сигналы между компонентами."""
+        # Элементы панели
         self.elements_panel.canvas_selected.connect(self._on_canvas_selected)
         self.elements_panel.object_selected.connect(self._on_object_selected)
         self.elements_panel.canvas_context_menu.connect(self._on_canvas_context_menu)
         self.elements_panel.object_parent_changed.connect(self._on_object_parent_changed)
         self.elements_panel.add_child_requested.connect(self._on_add_child_requested)
 
+        # Превью
         self.preview_frame.object_selected.connect(self._on_object_selected)
         self.preview_frame.object_moved.connect(self._on_object_moved)
 
+        # Панель свойств
         self.properties_panel.canvas_changed.connect(self._on_canvas_changed)
         self.properties_panel.object_changed.connect(self._on_object_changed)
         self.properties_panel.request_objects_list.connect(self._on_request_objects_list)
 
-        self.load_settings()
-        # Добавляем первый канвас
-        self._add_canvas()
-    
+        # Контроллер сцены
+        self.controller.set_canvas_added_callback(self._on_canvas_added)
+        self.controller.set_canvas_removed_callback(self._on_canvas_removed)
+        self.controller.set_object_added_callback(self._on_object_added)
+        self.controller.set_object_removed_callback(self._on_object_removed)
+
     def _create_object_menu(self) -> QMenu:
         """Создаёт меню для добавления объектов."""
         menu = QMenu(self)
 
-        # Фигуры
         shapes_menu = menu.addMenu("Фигуры")
         add_rect_action = shapes_menu.addAction("Прямоугольник")
         add_rect_action.triggered.connect(lambda: self._add_object("rect"))
@@ -228,86 +238,69 @@ class MainWindow(QMainWindow):
     def _create_menu_bar(self):
         """Создаёт верхнее меню."""
         menubar = self.menuBar()
-        
-        # Меню Настройки
+
         settings_menu = menubar.addMenu("Настройки")
-        
-        # Действие открытия настроек
+
         settings_action = QAction("Настройки...", self)
         settings_action.triggered.connect(self._open_settings)
         settings_menu.addAction(settings_action)
-        
-        # Разделитель
+
         settings_menu.addSeparator()
-        
-        # Действие выхода
+
         exit_action = QAction("Выход", self)
         exit_action.triggered.connect(self.close)
         settings_menu.addAction(exit_action)
-    
+
     def _open_settings(self):
         """Открывает диалог настроек."""
         dialog = SettingsDialog(self)
         dialog.exec()
-    
+
     def load_settings(self):
-        import json
-        try:
-            with open("settings.json", "r", encoding="utf-8") as f:
-                settings = json.load(f)
-                style_name = settings.get("style", "Fusion")
-                theme_name = settings.get("theme", "dark")
-                self.apply_settings(style_name, theme_name)
-        except (FileNotFoundError, json.JSONDecodeError):
-            # Если файл не найден или повреждён, применяем настройки по умолчанию
-            self.apply_settings("Fusion", "dark")
+        """Загружает настройки."""
+        settings = load_settings()
+        style_name = settings.get("style", "Fusion")
+        theme_name = settings.get("theme", "dark")
+        self.apply_settings(style_name, theme_name)
 
     def apply_settings(self, style_name: str, theme_name: str):
-        """Применяет настройки из диалога."""
-        # Применяем стиль
+        """Применяет настройки."""
         QApplication.setStyle(style_name)
-        
-        # Применяем тему
+
         is_dark = theme_name.lower() == "dark" or theme_name.lower() == "тёмная"
-        
+
         if is_dark:
             self.setStyleSheet(self.DARK_THEME)
         else:
             self.setStyleSheet(self.LIGHT_THEME)
-        
-        # Обновляем стили для toolbar
+
         if hasattr(self, 'toolbar'):
             self.toolbar.setStyleSheet(
                 "background-color: #3c3c3c; padding: 5px;" if is_dark else "background-color: #f0f0f0; padding: 5px;"
             )
-    
+
     def _add_canvas(self):
         """Добавляет новый канвас."""
-        canvas_count = len(self.project.get_all_canvases()) + 1
+        canvas_count = len(self.controller.get_all_canvases()) + 1
         canvas = Canvas(
             name=f"Canvas_{canvas_count}",
             width=800,
             height=600,
             background_color="#FFFFFF"
         )
-        
-        self.project.add_canvas(canvas)
-        self.elements_panel.add_canvas(canvas)
-        self.preview_frame.add_canvas(canvas)
-        
-        # Переключаемся на новый канвас
-        self._select_canvas(canvas.id)
-    
+
+        self.controller.add_canvas(canvas)
+
     def _add_object(self, obj_type: str = "rect", parent: BaseObject | None = None):
         """Добавляет новый объект на активный канвас."""
-        canvas = self.project.get_active_canvas()
+        canvas = self.controller.get_active_canvas()
         if not canvas:
             QMessageBox.warning(self, "Внимание", "Сначала создайте канвас")
             return
 
         if obj_type == "text":
-            obj_count = len([o for o in self.project.get_objects(canvas.id) if isinstance(o, TextObject)]) + 1
-            obj = TextObject(
+            obj_count = len([o for o in self.controller.get_objects(canvas.id) if isinstance(o, TextObject)]) + 1
+            obj = self.controller.create_text_object(
                 name=f"Text_{obj_count}",
                 x=50,
                 y=50,
@@ -319,9 +312,8 @@ class MainWindow(QMainWindow):
                 text_color="#000000"
             )
         else:
-            obj_count = len(self.project.get_objects(canvas.id)) + 1
-            
-            # Определяем тип фигуры
+            obj_count = len(self.controller.get_objects(canvas.id)) + 1
+
             shape_type = "rect"
             name_prefix = "Object"
             if obj_type == "ellipse":
@@ -330,8 +322,8 @@ class MainWindow(QMainWindow):
             elif obj_type == "triangle":
                 shape_type = "triangle"
                 name_prefix = "Triangle"
-            
-            obj = BaseObject(
+
+            obj = self.controller.create_shape_object(
                 name=f"{name_prefix}_{obj_count}",
                 x=50,
                 y=50,
@@ -343,148 +335,126 @@ class MainWindow(QMainWindow):
 
         # Устанавливаем родителя если есть
         if parent:
-            obj.parent_id = parent.id
-            # Позиция относительно родителя (локальные координаты)
-            # По умолчанию 20, 20 внутри родителя
+            self.controller.set_parent(canvas.id, obj, parent)
             obj.x = 20
             obj.y = 20
 
-        self.project.add_object(canvas.id, obj)
-        self.elements_panel.add_object(canvas.id, obj)
-        self.preview_frame.add_object(canvas.id, obj)
-    
+        self.controller.add_object(canvas.id, obj)
+
     def _select_canvas(self, canvas_id: str):
         """Переключается на указанный канвас."""
-        self.project.set_active_canvas(canvas_id)
-        canvas_item = self.elements_panel.tree._canvas_items.get(canvas_id)
+        self.controller.set_active_canvas(canvas_id)
+        canvas_item = self.elements_panel.tree._model._canvas_nodes.get(canvas_id)
         if canvas_item:
-            self.elements_panel.tree.setCurrentItem(canvas_item)
+            self.elements_panel.tree.setCurrentIndex(self.elements_panel.tree._model.createIndex(
+                canvas_item.row_in_parent, 0, canvas_item
+            ))
         self.preview_frame.set_active_canvas(canvas_id)
-    
+
+    # === Обработчики событий ===
+
+    def _on_canvas_added(self, canvas: Canvas):
+        """Обработчик добавления канваса."""
+        self.elements_panel.add_canvas(canvas)
+        self.preview_frame.add_canvas(canvas)
+        self._select_canvas(canvas.id)
+
+    def _on_canvas_removed(self, canvas_id: str):
+        """Обработчик удаления канваса."""
+        self.elements_panel.remove_canvas(canvas_id)
+        self.preview_frame.remove_canvas(canvas_id)
+
     def _on_canvas_selected(self, canvas_id: str):
         """Обработчик выбора канваса."""
-        canvas = self.project.get_canvas(canvas_id)
+        canvas = self.controller.get_canvas(canvas_id)
         if canvas:
-            self.project.set_active_canvas(canvas_id)
+            self.controller.set_active_canvas(canvas_id)
             self.preview_frame.set_active_canvas(canvas_id)
             self.properties_panel.set_canvas(canvas)
             self._update_zoom_label()
-    
+
     def _on_object_selected(self, obj: BaseObject):
         """Обработчик выбора объекта."""
         self.properties_panel.set_object(obj)
 
     def _on_object_moved(self, obj: BaseObject):
-        """Обработчик перемещения объекта (обновление в реальном времени)."""
+        """Обработчик перемещения объекта."""
         self.properties_panel.update_object_position(obj)
-    
+
     def _on_canvas_context_menu(self, target):
         """Обработчик контекстного меню канваса или объекта."""
-        # Показываем меню с выбором типа объекта
-        menu = QMenu(self)
+        pass  # Меню обрабатывается в elements_panel
 
-        add_rect_action = menu.addAction("Квадрат")
-        add_text_action = menu.addAction("Текст")
-
-        # Определяем родителя
-        parent = None
-        if isinstance(target, Canvas):
-            add_rect_action.triggered.connect(lambda: self._add_object("rect"))
-            add_text_action.triggered.connect(lambda: self._add_object("text"))
-        elif isinstance(target, BaseObject):
-            parent = target
-            add_rect_action.triggered.connect(lambda: self._add_object("rect", parent))
-            add_text_action.triggered.connect(lambda: self._add_object("text", parent))
-
-        menu.exec_(self.elements_panel.mapToGlobal(self.elements_panel.tree.viewport().rect().bottomRight()))
-    
     def _on_canvas_changed(self, canvas: Canvas):
         """Обработчик изменения свойств канваса."""
-        # Обновляем превью
         self.preview_frame.update_canvas(canvas.id)
-        # Обновляем дерево
         self.elements_panel.update_canvas_name(canvas)
-    
+
     def _on_object_changed(self, obj: BaseObject):
         """Обработчик изменения свойств объекта."""
-        canvas_id = self.elements_panel.tree.get_canvas_id_for_object(obj)
+        canvas_id = self.elements_panel.tree._model.get_canvas_id_for_obj(obj)
         if canvas_id:
-            # Обновляем превью
             self.preview_frame.update_object(canvas_id, obj)
-            # Обновляем имя в дереве
             self.elements_panel.update_object_name(canvas_id, obj)
-            # Обновляем иконку замка
-            self.elements_panel.update_object_lock(canvas_id, obj)
 
     def _on_object_parent_changed(self, obj: BaseObject):
         """Обработчик изменения родителя объекта."""
-        canvas_id = self.elements_panel.tree.get_canvas_id_for_object(obj)
+        canvas_id = self.elements_panel.tree._model.get_canvas_id_for_obj(obj)
         if canvas_id:
-            # Перестраиваем иерархию в превью
             scene = self.preview_frame.get_scene(canvas_id)
             if scene:
                 scene.rebuild_object_parent(obj)
 
     def _on_request_objects_list(self):
-        """Обработчик запроса списка объектов для выбора родителя."""
-        canvas = self.project.get_active_canvas()
+        """Обработчик запроса списка объектов."""
+        canvas = self.controller.get_active_canvas()
         if canvas:
-            objects = self.project.get_objects(canvas.id)
+            objects = self.controller.get_objects(canvas.id)
             self.properties_panel.set_objects_list(objects)
 
     def _on_add_child_requested(self, parent: BaseObject, obj_type: str):
         """Обработчик добавления дочернего объекта."""
         self._add_object(obj_type, parent)
 
+    def _on_object_added(self, canvas_id: str, obj: BaseObject):
+        """Обработчик добавления объекта."""
+        self.elements_panel.add_object(canvas_id, obj)
+        self.preview_frame.add_object(canvas_id, obj)
+
+    def _on_object_removed(self, canvas_id: str, obj: BaseObject):
+        """Обработчик удаления объекта."""
+        self.elements_panel.remove_object(canvas_id, obj)
+        self.preview_frame.remove_object(canvas_id, obj)
+
     def _export_to_png(self):
         """Экспортирует активный канвас в PNG."""
-        canvas = self.project.get_active_canvas()
+        canvas = self.controller.get_active_canvas()
         if not canvas:
             QMessageBox.warning(self, "Внимание", "Нет активного канваса для экспорта")
             return
-        
-        # Получаем сцену активного канваса
+
         scene = self.preview_frame.get_scene(canvas.id)
         if not scene:
             return
-        
-        # Открываем диалог сохранения
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Экспорт в PNG",
             f"{canvas.name}.png",
             "PNG Files (*.png)"
         )
-        
+
         if not file_path:
             return
-        
-        # Снимаем выделение для чистого рендера
-        scene.clear_selection()
-        
-        # Рендерим сцену в pixmap
-        # Устанавливаем размер сцены равным размеру канваса
-        scene.setSceneRect(0, 0, canvas.width, canvas.height)
-        
-        # Создаём pixmap нужного размера
-        pixmap = QPixmap(int(canvas.width), int(canvas.height))
-        pixmap.fill(QColor(canvas.background_color))
-        
-        # Рисуем сцену на pixmap
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        scene.render(painter)
-        painter.end()
 
-        # Сохраняем в файл
-        if pixmap.save(file_path):
+        if export_to_png(scene, canvas, file_path):
             QMessageBox.information(self, "Успех", f"Канвас экспортирован в {file_path}")
         else:
             QMessageBox.critical(self, "Ошибка", "Не удалось сохранить файл")
 
     def _get_active_canvas_id(self) -> str | None:
         """Возвращает ID активного канваса."""
-        canvas = self.project.get_active_canvas()
+        canvas = self.controller.get_active_canvas()
         return canvas.id if canvas else None
 
     def _update_zoom_label(self):
