@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+
+get_project_structure.py
+project_structure.txt
+*.png
+todo.txt
+$null
