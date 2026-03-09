@@ -164,11 +164,15 @@ class PreviewScene(QGraphicsScene):
         if obj.parent_id and obj.parent_id in self._items_by_id:
             parent_item = self._items_by_id[obj.parent_id]
             item.setParentItem(parent_item)
+            # Явно устанавливаем позицию в координатах родителя
+            item.setPos(obj.x, obj.y)
             # Дочерний элемент должен иметь меньший z, чем родитель
             # Используем отрицательное значение относительно родителя
             item.setZValue(parent_item.zValue() - 1)
         else:
             item.setParentItem(None)
+            # Явно устанавливаем позицию
+            item.setPos(obj.x, obj.y)
             # Для корневых объектов используем rebuild_z_order для правильного порядка
             pass  # z-значение будет установлено через rebuild_z_order
 

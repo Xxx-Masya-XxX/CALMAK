@@ -57,8 +57,6 @@ class TreeNode:
 
 
 class SceneTreeModel(QAbstractItemModel):
-    order_changed = Signal(str)  # canvas_id при изменении порядка
-
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._root = TreeNode(None)
@@ -145,13 +143,15 @@ class SceneTreeModel(QAbstractItemModel):
             flags |= (Qt.ItemFlag.ItemIsEditable
                       | Qt.ItemFlag.ItemIsDragEnabled
                       | Qt.ItemFlag.ItemIsDropEnabled)
+        if node.is_canvas:
+            flags |= Qt.ItemFlag.ItemIsDragEnabled
         return flags
 
     def supportedDropActions(self) -> Qt.DropAction:
         return Qt.DropAction.MoveAction
 
     def mimeTypes(self) -> list[str]:
-        return ["application/x-scene-obj-id"]
+        return ["application/x-scene-obj-id", "application/x-scene-canvas-id"]
 
     def mimeData(self, indexes: list[QModelIndex]) -> QMimeData:
         mime = QMimeData()
@@ -159,10 +159,17 @@ class SceneTreeModel(QAbstractItemModel):
             node: TreeNode = indexes[0].internalPointer()
             if node.is_object:
                 mime.setData("application/x-scene-obj-id", node.data.id.encode())
+            elif node.is_canvas:
+                mime.setData("application/x-scene-canvas-id", node.data.id.encode())
         return mime
 
     def canDropMimeData(self, data: QMimeData, action: Qt.DropAction,
                         row: int, column: int, parent: QModelIndex) -> bool:
+        # Canvas reorder: вставка между канвасами на корневом уровне
+        if data.hasFormat("application/x-scene-canvas-id"):
+            # разрешаем только вставку между элементами (row >= 0) на корневом уровне
+            return row >= 0 and not parent.isValid()
+
         if not data.hasFormat("application/x-scene-obj-id"):
             return False
         obj_id = data.data("application/x-scene-obj-id").toStdString()
@@ -175,11 +182,15 @@ class SceneTreeModel(QAbstractItemModel):
             if not parent.isValid():
                 return False
             parent_node: TreeNode = parent.internalPointer()
+            # нельзя вставить объект внутрь самого себя
+            if parent_node is obj_node:
+                return False
             src_canvas = self._canvas_for_node(obj_node)
             dst_canvas = self._canvas_for_node(parent_node) if parent_node.is_object else parent_node
             if src_canvas is None or dst_canvas is None or src_canvas is not dst_canvas:
                 return False
-            if parent_node.is_object and self._is_descendant(parent_node, obj_node):
+            # нельзя вставить родителя в его же потомка
+            if self._is_descendant(parent_node, obj_node):
                 return False
             return True
 
@@ -201,6 +212,28 @@ class SceneTreeModel(QAbstractItemModel):
                      row: int, column: int, parent: QModelIndex) -> bool:
         if not self.canDropMimeData(data, action, row, column, parent):
             return False
+
+        # Перемещение канваса
+        if data.hasFormat("application/x-scene-canvas-id"):
+            canvas_id = data.data("application/x-scene-canvas-id").toStdString()
+            canvas_node = self._canvas_nodes.get(canvas_id)
+            if canvas_node is None:
+                return False
+            old_row = canvas_node.row_in_parent
+            insert_row = row if row >= 0 else len(self._root.children)
+            if insert_row == old_row or insert_row == old_row + 1:
+                return False  # позиция не изменилась
+            self.beginRemoveRows(QModelIndex(), old_row, old_row)
+            self._root.remove_child(canvas_node)
+            self.endRemoveRows()
+            if insert_row > old_row:
+                insert_row -= 1
+            insert_row = min(insert_row, len(self._root.children))
+            self.beginInsertRows(QModelIndex(), insert_row, insert_row)
+            self._root.insert_child(insert_row, canvas_node)
+            self.endInsertRows()
+            self._rebuild_global_index()
+            return True
 
         obj_id = data.data("application/x-scene-obj-id").toStdString()
         obj_node = self._obj_nodes[obj_id]
@@ -224,12 +257,6 @@ class SceneTreeModel(QAbstractItemModel):
         parent_node.insert_child(insert_row, obj_node)
         self.endInsertRows()
         self._rebuild_global_index()
-
-        # Отправляем сигнал об изменении порядка
-        canvas_node = self._canvas_for_node(parent_node)
-        if canvas_node and canvas_node.is_canvas:
-            self.order_changed.emit(canvas_node.data.id)
-
         return True
 
     def add_canvas(self, canvas: Canvas) -> None:
@@ -350,20 +377,33 @@ class SceneTreeModel(QAbstractItemModel):
         return False
 
     def _recalc_coords(self, obj: BaseObject, new_parent_id: str | None) -> None:
+        # Защита от рекурсии: нельзя сделать объект родителем самого себя или потомка
+        obj_node = self._obj_nodes.get(obj.id)
+        if new_parent_id and obj_node:
+            new_parent_node = self._obj_nodes.get(new_parent_id)
+            if new_parent_node and (new_parent_id == obj.id or self._is_descendant(new_parent_node, obj_node)):
+                return
+
+        # Получаем глобальные координаты ДО изменения родителя
         old_parent_node = self._obj_nodes.get(obj.parent_id) if obj.parent_id else None
         if old_parent_node:
             gp = old_parent_node.data.get_global_position()
             gx, gy = gp[0] + obj.x, gp[1] + obj.y
         else:
             gx, gy = obj.x, obj.y
+
+        # Вычисляем позицию нового родителя ДО изменения obj._parent
         new_parent_obj = self._obj_nodes[new_parent_id].data if new_parent_id and new_parent_id in self._obj_nodes else None
-        obj.parent_id = new_parent_id
-        obj._parent = new_parent_obj
         if new_parent_obj:
             np_ = new_parent_obj.get_global_position()
-            obj.x, obj.y = gx - np_[0], gy - np_[1]
+            new_local_x, new_local_y = gx - np_[0], gy - np_[1]
         else:
-            obj.x, obj.y = gx, gy
+            new_local_x, new_local_y = gx, gy
+
+        # Только теперь меняем родителя и координаты
+        obj.parent_id = new_parent_id
+        obj._parent = new_parent_obj
+        obj.x, obj.y = new_local_x, new_local_y
 
     def all_obj_nodes_for_canvas(self, canvas_id: str) -> dict[str, TreeNode]:
         result = {}
@@ -443,10 +483,10 @@ class _DropLineDelegate(QStyledItemDelegate):
             return
 
         # ── Линия вставки между элементами ───────────────────────────────
-        if self._drop_row < 0 or not self._drop_parent.isValid():
+        if self._drop_row < 0:
             return
 
-        parent_index = QModelIndex(self._drop_parent)
+        parent_index = QModelIndex(self._drop_parent) if self._drop_parent.isValid() else QModelIndex()
         row_count = model.rowCount(parent_index)
 
         # Какой элемент рисует линию?
@@ -487,6 +527,10 @@ class _DropLineDelegate(QStyledItemDelegate):
         painter.drawEllipse(x_end - r // 2, y - r // 2, r, r)
         painter.restore()
 
+    def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex):
+        sh = super().sizeHint(option, index)
+        return sh.__class__(sh.width(), max(sh.height(), 36))
+
     def _nesting_level(self, index: QModelIndex) -> int:
         level = 0
         p = index.parent()
@@ -505,7 +549,7 @@ class CustomTreeView(QTreeView):
     canvas_selected = Signal(str)
     object_selected = Signal(BaseObject)
     object_parent_changed = Signal(BaseObject)
-    order_changed = Signal(str)  # Сигнал об изменении порядка (canvas_id)
+    order_changed = Signal(str)
     add_child_requested = Signal(object, str)
     canvas_context_menu = Signal(object)
 
@@ -528,11 +572,27 @@ class CustomTreeView(QTreeView):
         self._delegate = _DropLineDelegate(self)
         self.setItemDelegate(self._delegate)
 
+        # Увеличенные строки и шрифт
+        font = self.font()
+        font.setPointSize(font.pointSize() + 1)
+        self.setFont(font)
+        self.setStyleSheet("""
+            QTreeView::item {
+                padding: 4px 6px;
+                min-height: 36px;
+            }
+            QTreeView::item:selected {
+                border-radius: 4px;
+            }
+            QTreeView::branch {
+                padding: 4px 0px;
+            }
+        """)
+
         self.customContextMenuRequested.connect(self._show_context_menu)
         self.clicked.connect(self._on_clicked)
         self.doubleClicked.connect(self._on_double_clicked)
         self._model.rowsInserted.connect(lambda parent, *_: self.expand(parent))
-        self._model.order_changed.connect(self.order_changed.emit)
 
     # ── совместимость ────────────────────────────────────────────────────
 
@@ -606,13 +666,48 @@ class CustomTreeView(QTreeView):
     # ── drag & drop ───────────────────────────────────────────────────────
 
     def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat("application/x-scene-obj-id"):
+        mime = event.mimeData()
+        if mime.hasFormat("application/x-scene-obj-id") or mime.hasFormat("application/x-scene-canvas-id"):
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dragMoveEvent(self, event) -> None:
-        if not event.mimeData().hasFormat("application/x-scene-obj-id"):
+        mime = event.mimeData()
+
+        # ── Перетаскивание канваса ────────────────────────────────────────
+        if mime.hasFormat("application/x-scene-canvas-id"):
+            pos = event.position().toPoint()
+            index = self.indexAt(pos)
+            dragged_id = mime.data("application/x-scene-canvas-id").toStdString()
+
+            if index.isValid():
+                node = self._model.node_for_index(index)
+                if node and node.is_canvas:
+                    rect = self.visualRect(index)
+                    rel_y = pos.y() - rect.top()
+                    # Верхняя половина — вставить перед, нижняя — вставить после
+                    if rel_y < rect.height() / 2:
+                        drop_row = index.row()
+                    else:
+                        drop_row = index.row() + 1
+                    # Не показываем индикатор если позиция не меняется
+                    dragged_node = self._model._canvas_nodes.get(dragged_id)
+                    old_row = dragged_node.row_in_parent if dragged_node else -1
+                    if drop_row != old_row and drop_row != old_row + 1:
+                        self._delegate.set_drop_target(drop_row, QModelIndex(), False)
+                        event.acceptProposedAction()
+                    else:
+                        self._delegate.clear_drop_target()
+                        event.ignore()
+                    self.viewport().update()
+                    return
+            self._delegate.clear_drop_target()
+            self.viewport().update()
+            event.ignore()
+            return
+
+        if not mime.hasFormat("application/x-scene-obj-id"):
             event.ignore()
             return
 
@@ -627,6 +722,15 @@ class CustomTreeView(QTreeView):
 
         node = self._model.node_for_index(index)
         if node is None or not node.is_object:
+            self._delegate.clear_drop_target()
+            self.viewport().update()
+            event.ignore()
+            return
+
+        # Получаем перетаскиваемый объект и запрещаем drop на самого себя
+        dragged_id = event.mimeData().data("application/x-scene-obj-id").toStdString()
+        dragged_node = self._model._obj_nodes.get(dragged_id)
+        if dragged_node is node:
             self._delegate.clear_drop_target()
             self.viewport().update()
             event.ignore()
@@ -672,7 +776,22 @@ class CustomTreeView(QTreeView):
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event) -> None:
-        if not event.mimeData().hasFormat("application/x-scene-obj-id"):
+        mime = event.mimeData()
+
+        # ── Перетаскивание канваса ────────────────────────────────────────
+        if mime.hasFormat("application/x-scene-canvas-id"):
+            drop_row = self._delegate._drop_row
+            self._delegate.clear_drop_target()
+            self.viewport().update()
+            ok = self._model.dropMimeData(
+                mime, Qt.DropAction.MoveAction, drop_row, 0, QModelIndex())
+            if ok:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+            return
+
+        if not mime.hasFormat("application/x-scene-obj-id"):
             event.ignore()
             return
 
@@ -696,6 +815,9 @@ class CustomTreeView(QTreeView):
             node = self._model._obj_nodes.get(obj_id)
             if node:
                 self.object_parent_changed.emit(node.data)
+                canvas_node = self._model._canvas_for_node(node)
+                if canvas_node and canvas_node.is_canvas:
+                    self.order_changed.emit(canvas_node.data.id)
         else:
             event.ignore()
 
@@ -743,7 +865,7 @@ class ElementsPanel(QFrame):
     canvas_selected = Signal(str)
     object_selected = Signal(BaseObject)
     object_parent_changed = Signal(BaseObject)
-    order_changed = Signal(str)  # canvas_id при изменении порядка
+    order_changed = Signal(str)
     add_child_requested = Signal(object, str)
     canvas_context_menu = Signal(object)
 
