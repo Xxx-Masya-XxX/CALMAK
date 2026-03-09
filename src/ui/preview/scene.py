@@ -110,6 +110,18 @@ class PreviewScene(QGraphicsScene):
         self._object_items[obj] = graphics_item
         self._items_by_id[obj.id] = graphics_item
 
+    def _update_children_positions(self, parent_obj: BaseObject):
+        """Обновляет позиции дочерних элементов после перемещения родителя.
+
+        При перемещении родителя дочерние элементы визуально следуют за ним,
+        но их локальные координаты (obj.x, obj.y) остаются неизменными.
+        """
+        # Находим все объекты на сцене, у которых parent_id == parent_obj.id
+        for obj, item in list(self._object_items.items()):
+            if obj.parent_id == parent_obj.id:
+                # Явно обновляем позицию элемента (локальные координаты не меняются)
+                item.setPos(obj.x, obj.y)
+
     def remove_object(self, obj: BaseObject):
         """Удаляет объект со сцены."""
         if obj in self._object_items:
@@ -163,7 +175,10 @@ class PreviewScene(QGraphicsScene):
             item.setSelected(True)
 
     def rebuild_object_parent(self, obj: BaseObject):
-        """Перестраивает родительскую связь для объекта и обновляет z-порядок."""
+        """Перестраивает родительскую связь для объекта и обновляет z-порядок.
+
+        При смене родителя координаты obj.x/obj.y уже пересчитаны в контроллере.
+        """
         if obj not in self._object_items:
             return
 
@@ -171,17 +186,14 @@ class PreviewScene(QGraphicsScene):
         if obj.parent_id and obj.parent_id in self._items_by_id:
             parent_item = self._items_by_id[obj.parent_id]
             item.setParentItem(parent_item)
-            # Явно устанавливаем позицию в координатах родителя
+            # Устанавливаем позицию в локальных координатах родителя
             item.setPos(obj.x, obj.y)
             # Дочерний элемент должен иметь меньший z, чем родитель
-            # Используем отрицательное значение относительно родителя
             item.setZValue(parent_item.zValue() - 1)
         else:
             item.setParentItem(None)
-            # Явно устанавливаем позицию
+            # Устанавливаем глобальную позицию
             item.setPos(obj.x, obj.y)
-            # Для корневых объектов используем rebuild_z_order для правильного порядка
-            pass  # z-значение будет установлено через rebuild_z_order
 
     def rebuild_z_order(self, objects_in_render_order: list[BaseObject]):
         """Перестраивает z-порядок всех объектов согласно порядку рендеринга.

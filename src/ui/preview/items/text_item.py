@@ -5,15 +5,15 @@ from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath
 from PySide6.QtCore import Qt, QRectF, QPointF
 
 from ....models.objects.text_object import TextObject
+from .base_item import ResizeMixin
 
 
-class TextGraphicsItem(QGraphicsTextItem):
+class TextGraphicsItem(ResizeMixin, QGraphicsTextItem):
     """Текстовый элемент с поддержкой изменения размера."""
 
     def __init__(self, obj: TextObject, parent_item=None):
-        super().__init__(obj.text, parent_item)
+        QGraphicsTextItem.__init__(self, obj.text, parent_item)
         self.obj = obj
-        # Устанавливаем флаги в зависимости от блокировки
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable, not obj.locked)
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsSelectable)
         self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemSendsGeometryChanges)
@@ -23,10 +23,21 @@ class TextGraphicsItem(QGraphicsTextItem):
         self._resizing = False
         self._resize_handle_size = 8.0
         self._resize_edge = None
+        self._resize_start_pos = QPointF(0, 0)
+        self._original_x = 0.0
+        self._original_y = 0.0
+        self._original_width = 0.0
+        self._original_height = 0.0
+        self._current_cursor = None
 
         self.setPos(obj.x, obj.y)
         self.update_font()
         self.update_colors()
+
+    def bounding_rect_for_resize(self) -> QRectF:
+        """Возвращает границы для изменения размера."""
+        doc_height = self.document().size().height()
+        return QRectF(0, 0, self.obj.width, max(self.obj.height, doc_height))
 
     def update_font(self):
         """Обновляет шрифт."""
@@ -38,7 +49,6 @@ class TextGraphicsItem(QGraphicsTextItem):
         self.setPlainText(self.obj.text)
         self.setTextWidth(self.obj.width)
 
-        # Выравнивание текста по горизонтали
         doc = self.document()
         block = doc.firstBlock()
         block_format = block.blockFormat()
@@ -53,11 +63,9 @@ class TextGraphicsItem(QGraphicsTextItem):
         cursor = self.textCursor()
         cursor.setBlockFormat(block_format)
 
-        # Обновляем высоту объекта
         doc_height = self.document().size().height()
         self.obj.height = max(self.obj.height, doc_height)
 
-        # Смещаем центр вращения в центр объекта
         self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
         self.setRotation(self.obj.rotation)
 
@@ -71,8 +79,8 @@ class TextGraphicsItem(QGraphicsTextItem):
 
     def boundingRect(self) -> QRectF:
         """Переопределённая граница для обработки изменения размера."""
-        doc_rect = (self.document().idealWidth(), self.document().size().height())
-        base_rect = QRectF(0, 0, self.obj.width, max(self.obj.height, doc_rect[1]))
+        doc_height = self.document().size().height()
+        base_rect = QRectF(0, 0, self.obj.width, max(self.obj.height, doc_height))
         return base_rect.adjusted(
             -self._resize_handle_size,
             -self._resize_handle_size,
@@ -94,7 +102,6 @@ class TextGraphicsItem(QGraphicsTextItem):
             painter.save()
             painter.translate(0, y_offset)
 
-        # Рисуем обводку текста если включена
         if self.obj.stroke_enabled:
             painter.save()
             pen = QPen(QColor(self.obj.stroke_color), self.obj.stroke_width)
@@ -130,7 +137,6 @@ class TextGraphicsItem(QGraphicsTextItem):
 
         super().paint(painter, option, widget)
 
-        # Рисуем рамку выделения
         if self.isSelected():
             painter.save()
             pen = QPen(QColor(Qt.GlobalColor.blue), 2)
@@ -143,125 +149,28 @@ class TextGraphicsItem(QGraphicsTextItem):
         if y_offset != 0:
             painter.restore()
 
-    def _get_resize_edge(self, pos: QPointF) -> str | None:
-        """Определяет край для изменения размера."""
-        rect = QRectF(0, 0, self.obj.width, self.obj.height)
-        margin = self._resize_handle_size
-
-        left = abs(pos.x() - rect.left()) < margin
-        right = abs(pos.x() - rect.right()) < margin
-        top = abs(pos.y() - rect.top()) < margin
-        bottom = abs(pos.y() - rect.bottom()) < margin
-
-        if top and left:
-            return "top-left"
-        elif top and right:
-            return "top-right"
-        elif bottom and left:
-            return "bottom-left"
-        elif bottom and right:
-            return "bottom-right"
-        elif left:
-            return "left"
-        elif right:
-            return "right"
-        elif top:
-            return "top"
-        elif bottom:
-            return "bottom"
-        return None
-
-    def _get_cursor_for_edge(self, edge: str) -> Qt.CursorShape:
-        """Возвращает курсор для края."""
-        cursors = {
-            "top-left": Qt.CursorShape.SizeFDiagCursor,
-            "top-right": Qt.CursorShape.SizeBDiagCursor,
-            "bottom-left": Qt.CursorShape.SizeBDiagCursor,
-            "bottom-right": Qt.CursorShape.SizeFDiagCursor,
-            "left": Qt.CursorShape.SizeHorCursor,
-            "right": Qt.CursorShape.SizeHorCursor,
-            "top": Qt.CursorShape.SizeVerCursor,
-            "bottom": Qt.CursorShape.SizeVerCursor,
-        }
-        return cursors.get(edge, Qt.CursorShape.ArrowCursor)
-
-    def hoverMoveEvent(self, event):
-        """Обработка наведения мыши."""
-        if self._resizing:
-            event.ignore()
-            return
-
-        local_pos = event.pos()
-        edge = self._get_resize_edge(local_pos)
-
-        if edge:
-            self.setCursor(self._get_cursor_for_edge(edge))
-        else:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-
-        super().hoverMoveEvent(event)
-
     def mousePressEvent(self, event):
         """Обработка нажатия мыши."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            local_pos = event.pos()
-            edge = self._get_resize_edge(local_pos)
-
-            if edge:
-                self._resizing = True
-                self._resize_edge = edge
-                self._resize_start_pos = event.scenePos()
-                self._original_width = self.obj.width
-                self._original_height = self.obj.height
-                self._original_x = self.obj.x
-                self._original_y = self.obj.y
-                event.accept()
-                return
-
+        if self.resize_mouse_press(event):
+            return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         """Обработка перемещения мыши."""
-        if self._resizing and self._resize_edge:
-            delta = event.scenePos() - self._resize_start_pos
-            edge = self._resize_edge
-
-            if "left" in edge:
-                new_x = self._original_x + delta.x()
-                new_width = self._original_width - delta.x()
-                if new_width >= 10:
-                    self.obj.x = new_x
-                    self.obj.width = new_width
-            elif "right" in edge:
-                new_width = self._original_width + delta.x()
-                if new_width >= 10:
-                    self.obj.width = new_width
-
-            if "top" in edge:
-                new_y = self._original_y + delta.y()
-                new_height = self._original_height - delta.y()
-                if new_height >= 10:
-                    self.obj.y = new_y
-                    self.obj.height = new_height
-            elif "bottom" in edge:
-                new_height = self._original_height + delta.y()
-                if new_height >= 10:
-                    self.obj.height = new_height
-
-            self.update_font()
-            self.setPos(self.obj.x, self.obj.y)
-            self.update()
-            event.accept()
+        if self.resize_mouse_move(event):
             return
-
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         """Обработка отпускания мыши."""
-        if event.button() == Qt.MouseButton.LeftButton and self._resizing:
-            self._resizing = False
-            self._resize_edge = None
+        self.resize_mouse_release(event)
         super().mouseReleaseEvent(event)
+
+    def on_resize(self):
+        """Вызывается после изменения размера для обновления текста."""
+        self.update_font()
+        self.setPos(self.obj.x, self.obj.y)
+        self.update()
 
     def itemChange(self, change, value):
         """Обработка изменений элемента."""
@@ -275,6 +184,9 @@ class TextGraphicsItem(QGraphicsTextItem):
 
             if hasattr(self, 'scene') and self.scene():
                 scene = self.scene()
+                # Обновляем позиции дочерних элементов
+                if hasattr(scene, '_update_children_positions'):
+                    scene._update_children_positions(self.obj)
                 if hasattr(scene, 'object_moved'):
                     scene.object_moved.emit(self.obj)
 

@@ -186,8 +186,25 @@ class SceneController:
         return None
 
     def set_parent(self, canvas_id: str, obj: BaseObject, parent: BaseObject | None):
-        """Устанавливает родителя для объекта."""
+        """Устанавливает родителя для объекта.
+
+        Сохраняет глобальную позицию объекта, пересчитывая локальные координаты.
+        """
         old_parent_id = obj.parent_id
+        
+        # Получаем глобальные координаты объекта ДО смены родителя
+        if old_parent_id:
+            old_parent = self.get_parent(canvas_id, obj)
+            if old_parent:
+                old_parent_global = old_parent.get_global_position()
+                global_x = old_parent_global[0] + obj.x
+                global_y = old_parent_global[1] + obj.y
+            else:
+                global_x, global_y = obj.x, obj.y
+        else:
+            global_x, global_y = obj.x, obj.y
+
+        # Устанавливаем нового родителя
         if parent:
             obj.parent_id = parent.id
             obj._parent = parent
@@ -195,15 +212,26 @@ class SceneController:
             obj.parent_id = None
             obj._parent = None
 
-        # Пересчитываем координаты при смене родителя
-        self._recalculate_coords(obj, old_parent_id)
+        # Пересчитываем локальные координаты относительно нового родителя
+        if obj._parent:
+            new_parent_global = obj._parent.get_global_position()
+            obj.x = global_x - new_parent_global[0]
+            obj.y = global_y - new_parent_global[1]
+        else:
+            obj.x = global_x
+            obj.y = global_y
+
         self._notify_object_changed(canvas_id, obj)
 
     def _recalculate_coords(self, obj: BaseObject, old_parent_id: str | None):
-        """Пересчитывает координаты при смене родителя."""
-        # Получаем глобальные координаты
+        """Пересчитывает координаты при смене родителя.
+
+        Сохраняет глобальную позицию объекта при смене родителя,
+        пересчитывая локальные координаты.
+        """
+        # Получаем глобальные координаты до смены родителя
         if old_parent_id:
-            objects = self._objects.get(obj.parent_id or "", [])
+            objects = self._objects.get(old_parent_id, [])
             old_parent = next((o for o in objects if o.id == old_parent_id), None)
             if old_parent:
                 old_parent_global = old_parent.get_global_position()
@@ -214,7 +242,7 @@ class SceneController:
         else:
             global_x, global_y = obj.x, obj.y
 
-        # Устанавливаем новые локальные координаты
+        # Устанавливаем новые локальные координаты относительно нового родителя
         if obj._parent:
             new_parent_global = obj._parent.get_global_position()
             obj.x = global_x - new_parent_global[0]
