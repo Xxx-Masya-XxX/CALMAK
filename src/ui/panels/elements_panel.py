@@ -2,13 +2,14 @@
 
 from PySide6.QtWidgets import (
     QAbstractItemView, QMenu, QStyledItemDelegate, QStyleOptionViewItem,
-    QTreeView, QVBoxLayout, QWidget, QFrame, QHBoxLayout, QPushButton
+    QTreeView, QVBoxLayout, QWidget, QFrame, QHBoxLayout, QPushButton,
+    QStyleOptionButton, QStyle
 )
 from PySide6.QtCore import (
     QAbstractItemModel, QMimeData, QModelIndex, QPersistentModelIndex,
-    Qt, Signal, QRect
+    Qt, Signal, QRect, QObject
 )
-from PySide6.QtGui import QAction, QBrush, QColor, QFont, QPen
+from PySide6.QtGui import QAction, QBrush, QColor, QFont, QPen, QIcon
 
 from ...models import BaseObject, Canvas, TextObject
 
@@ -550,8 +551,9 @@ class CustomTreeView(QTreeView):
     object_selected = Signal(BaseObject)
     object_parent_changed = Signal(BaseObject)
     order_changed = Signal(str)
-    add_child_requested = Signal(object, str)
-    canvas_context_menu = Signal(object)
+    add_child_requested = Signal(BaseObject, str)
+    canvas_context_menu = Signal(Canvas)
+    delete_requested = Signal(object)  # Сигнал для удаления выделенного элемента (Canvas или BaseObject)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -844,6 +846,18 @@ class CustomTreeView(QTreeView):
         else:
             self.expand(index)
 
+    def keyPressEvent(self, event) -> None:
+        """Обработка нажатий клавиш."""
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            index = self.currentIndex()
+            if index.isValid():
+                node = self._model.node_for_index(index)
+                if node:
+                    self.delete_requested.emit(node.data)
+                    event.accept()
+                    return
+        super().keyPressEvent(event)
+
     def _show_context_menu(self, pos) -> None:
         index = self.indexAt(pos)
         node = self._model.node_for_index(index)
@@ -853,13 +867,17 @@ class CustomTreeView(QTreeView):
         if node.is_canvas:
             add_rect = menu.addAction("Добавить прямоугольник")
             add_text = menu.addAction("Добавить текст")
+            add_delete = menu.addAction("Удалить")
             add_rect.triggered.connect(lambda: self.canvas_context_menu.emit(node.data))
             add_text.triggered.connect(lambda: self.canvas_context_menu.emit(node.data))
+            add_delete.triggered.connect(lambda: self.delete_requested.emit(node.data))
         elif node.is_object:
             add_rect = menu.addAction("Добавить дочерний прямоугольник")
             add_text = menu.addAction("Добавить дочерний текст")
+            add_delete = menu.addAction("Удалить")
             add_rect.triggered.connect(lambda: self.add_child_requested.emit(node.data, "rect"))
             add_text.triggered.connect(lambda: self.add_child_requested.emit(node.data, "text"))
+            add_delete.triggered.connect(lambda: self.delete_requested.emit(node.data))
         menu.exec(self.viewport().mapToGlobal(pos))
 
 
@@ -873,8 +891,9 @@ class ElementsPanel(QFrame):
     object_selected = Signal(BaseObject)
     object_parent_changed = Signal(BaseObject)
     order_changed = Signal(str)
-    add_child_requested = Signal(object, str)
-    canvas_context_menu = Signal(object)
+    add_child_requested = Signal(BaseObject, str)
+    canvas_context_menu = Signal(Canvas)
+    delete_requested = Signal(object)  # Сигнал для удаления элемента (Canvas или BaseObject)
 
     def __init__(self, main_window=None):
         super().__init__()
@@ -885,11 +904,19 @@ class ElementsPanel(QFrame):
         header_frame = QFrame()
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(5, 5, 5, 5)
-        from PySide6.QtWidgets import QLabel
+        from PySide6.QtWidgets import QLabel, QPushButton
         title_label = QLabel("Элементы")
         title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
+        
+        # Кнопка удаления
+        self.delete_btn = QPushButton("🗑️")
+        self.delete_btn.setFixedSize(32, 32)
+        self.delete_btn.setToolTip("Удалить выбранный объект или канвас (Delete)")
+        self.delete_btn.clicked.connect(self._on_delete_clicked)
+        header_layout.addWidget(self.delete_btn)
+        
         layout.addWidget(header_frame)
 
         self.tree = CustomTreeView()
@@ -901,6 +928,7 @@ class ElementsPanel(QFrame):
         self.tree.order_changed.connect(self.order_changed.emit)
         self.tree.add_child_requested.connect(self.add_child_requested.emit)
         self.tree.canvas_context_menu.connect(self.canvas_context_menu.emit)
+        self.tree.delete_requested.connect(self.delete_requested.emit)
 
     def add_canvas(self, canvas: Canvas):
         self.tree._model.add_canvas(canvas)
@@ -925,3 +953,11 @@ class ElementsPanel(QFrame):
 
     def select_object(self, canvas_id: str, obj: BaseObject):
         self.tree.select_object(canvas_id, obj)
+
+    def _on_delete_clicked(self):
+        """Обработчик нажатия кнопки удаления."""
+        index = self.tree.currentIndex()
+        if index.isValid():
+            node = self.tree._model.node_for_index(index)
+            if node:
+                self.tree.delete_requested.emit(node.data)

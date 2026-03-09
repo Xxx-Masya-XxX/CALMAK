@@ -148,6 +148,7 @@ class MainWindow(QMainWindow):
         self.elements_panel.object_parent_changed.connect(self._on_object_parent_changed)
         self.elements_panel.order_changed.connect(self._on_order_changed)
         self.elements_panel.add_child_requested.connect(self._on_add_child_requested)
+        self.elements_panel.delete_requested.connect(self._on_delete_requested)
 
         # Превью
         self.preview_frame.object_selected.connect(self._on_object_selected)
@@ -322,6 +323,24 @@ class MainWindow(QMainWindow):
     def _on_add_child_requested(self, parent: BaseObject, obj_type: str):
         """Обработчик добавления дочернего объекта."""
         self._add_object(obj_type, parent)
+
+    def _on_delete_requested(self, item):
+        """Обработчик запроса на удаление объекта или канваса."""
+        if isinstance(item, Canvas):
+            # Удаляем канвас
+            reply = QMessageBox.question(
+                self,
+                "Подтверждение",
+                f"Удалить канвас '{item.name}' и все его объекты?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.controller.remove_canvas(item.id)
+        elif isinstance(item, BaseObject):
+            # Удаляем объект
+            canvas = self.controller.get_active_canvas()
+            if canvas:
+                self.controller.remove_object(canvas.id, item)
 
     def _on_order_changed(self, canvas_id: str):
         """Обработчик изменения порядка объектов в дереве."""
