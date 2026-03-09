@@ -31,7 +31,7 @@ class CanvasRectItem(QGraphicsRectItem):
 
     def update_size(self):
         """Обновляет размер канваса."""
-        self.setRect(QRectF(0, 0, self.canvas.width, canvas.height))
+        self.setRect(QRectF(0, 0, self.canvas.width, self.canvas.height))
 
 
 class PreviewScene(QGraphicsScene):
@@ -154,6 +154,13 @@ class PreviewScene(QGraphicsScene):
         """Снимает выделение со всех объектов."""
         for item in self.selectedItems():
             item.setSelected(False)
+
+    def select_object(self, obj: BaseObject) -> None:
+        """Выделяет объект на сцене."""
+        self.clearSelection()
+        if obj in self._object_items:
+            item = self._object_items[obj]
+            item.setSelected(True)
 
     def rebuild_object_parent(self, obj: BaseObject):
         """Перестраивает родительскую связь для объекта и обновляет z-порядок."""

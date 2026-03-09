@@ -11,6 +11,8 @@ from .scene import PreviewScene
 class ClippedGraphicsView(QGraphicsView):
     """QGraphicsView с обрезкой рендеринга по границам сцены и поддержкой зума."""
 
+    zoom_changed = Signal(float)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._zoom_factor = 1.0
@@ -30,6 +32,7 @@ class ClippedGraphicsView(QGraphicsView):
             else:
                 self.scale(1 / 1.1, 1 / 1.1)
                 self._zoom_factor /= 1.1
+            self.zoom_changed.emit(self._zoom_factor)
             event.accept()
             return
         super().wheelEvent(event)
@@ -38,6 +41,7 @@ class ClippedGraphicsView(QGraphicsView):
         """Сбрасывает зум к 100%."""
         self.resetTransform()
         self._zoom_factor = 1.0
+        self.zoom_changed.emit(self._zoom_factor)
 
     def get_zoom_factor(self) -> float:
         """Возвращает текущий фактор зума."""
@@ -49,6 +53,7 @@ class PreviewFrame(QWidget):
 
     object_selected = Signal(BaseObject)
     object_moved = Signal(BaseObject)
+    zoom_changed = Signal(float)  # Сигнал об изменении зума
 
     def __init__(self, main_window=None):
         super().__init__()
@@ -79,6 +84,7 @@ class PreviewFrame(QWidget):
         view = ClippedGraphicsView()
         view.setScene(scene)
         view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        view.zoom_changed.connect(self.zoom_changed.emit)
         self._views[canvas.id] = view
 
         # Добавляем в стек
@@ -152,14 +158,23 @@ class PreviewFrame(QWidget):
         if canvas_id in self._views:
             view = self._views[canvas_id]
             view.scale(1.1, 1.1)
+            view._zoom_factor *= 1.1
+            view.zoom_changed.emit(view._zoom_factor)
 
     def zoom_out(self, canvas_id: str):
         """Уменьшает масштаб."""
         if canvas_id in self._views:
             view = self._views[canvas_id]
             view.scale(1 / 1.1, 1 / 1.1)
+            view._zoom_factor /= 1.1
+            view.zoom_changed.emit(view._zoom_factor)
 
     def reset_zoom(self, canvas_id: str):
         """Сбрасывает масштаб к 100%."""
         if canvas_id in self._views:
             self._views[canvas_id].reset_zoom()
+
+    def select_object(self, canvas_id: str, obj: BaseObject) -> None:
+        """Выделяет объект на сцене."""
+        if canvas_id in self._scenes:
+            self._scenes[canvas_id].select_object(obj)

@@ -4,49 +4,21 @@ import random
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QSplitter,
-    QVBoxLayout, QPushButton, QFrame, QMessageBox, QMenu,
-    QFileDialog, QApplication
+    QVBoxLayout, QFrame, QMessageBox,
+    QApplication
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap, QPainter, QColor, QAction, QFont
+from PySide6.QtGui import QPixmap, QPainter, QColor
 
 from ..models import BaseObject, Canvas, TextObject
 from ..controllers import SceneController
-from ..services import export_to_png
 from ..ui.panels import ElementsPanel, PropertiesPanel
 from ..ui.preview import PreviewFrame
 from ..ui.dialogs import SettingsDialog
+from ..ui.toolbar import PreviewToolbar
+from ..ui.menubar import AppMenuBar
 from ..config import load_settings, save_settings
-
-
-def _random_color() -> str:
-    """Генерирует случайный яркий цвет в формате HEX."""
-    h = random.randint(0, 360)
-    s = random.randint(60, 100)
-    l = random.randint(45, 65)
-
-    c = (1 - abs(2 * l / 100 - 1)) * s / 100
-    x = c * (1 - abs((h / 60) % 2 - 1))
-    m = l / 100 - c / 2
-
-    if h < 60:
-        r, g, b = c, x, 0
-    elif h < 120:
-        r, g, b = x, c, 0
-    elif h < 180:
-        r, g, b = 0, c, x
-    elif h < 240:
-        r, g, b = 0, x, c
-    elif h < 300:
-        r, g, b = x, 0, c
-    else:
-        r, g, b = c, 0, x
-
-    r = int((r + m) * 255)
-    g = int((g + m) * 255)
-    b = int((b + m) * 255)
-
-    return f"#{r:02X}{g:02X}{b:02X}"
+from ..utils.random_color import _random_color
 
 
 class MainWindow(QMainWindow):
@@ -71,7 +43,9 @@ class MainWindow(QMainWindow):
 
     DARK_THEME = """
         QMainWindow { background-color: #2b2b2b; }
-        QTreeWidget { background-color: #3c3c3c; color: #ffffff; }
+        QObject { background-color: #1e1e1e; }
+        QFrame { background-color: #1e1e1e; }
+        QTreeWidget { background-color: #1e1e1e; color: #ffffff; }
         QGraphicsView { background-color: #1e1e1e; }
         QGroupBox { color: #ffffff; }
         QLabel { color: #ffffff; }
@@ -79,7 +53,7 @@ class MainWindow(QMainWindow):
         QSpinBox { color: #ffffff; background-color: #3c3c3c; }
         QLineEdit { color: #ffffff; background-color: #3c3c3c; }
         QCheckBox { color: #ffffff; }
-        QMenu { background-color: #3c3c3c; color: #ffffff; }
+        QMenu { background-color: #3c3c3c; color: #1e1e1e; }
         QMenu::item:selected { background-color: #505050; }
         QMenuBar { background-color: #3c3c3c; color: #ffffff; }
         QMenuBar::item:selected { background-color: #505050; }
@@ -95,7 +69,10 @@ class MainWindow(QMainWindow):
         self.controller = SceneController()
 
         # Меню
-        self._create_menu_bar()
+        self.menubar = AppMenuBar(self)
+        self.menubar.create_menu_bar()
+        self.menubar.settings_requested.connect(self.menubar.open_settings)
+        self.menubar.exit_requested.connect(self.close)
 
         # Центральный виджет
         central_widget = QWidget()
@@ -127,50 +104,19 @@ class MainWindow(QMainWindow):
         preview_layout.setContentsMargins(0, 0, 0, 0)
 
         # Панель инструментов превью
-        self.toolbar = QFrame()
-        self.toolbar.setObjectName("toolbar")
-        self.toolbar.setStyleSheet("background-color: #f0f0f0; padding: 5px;")
-        toolbar_layout = QHBoxLayout(self.toolbar)
-        toolbar_layout.setContentsMargins(5, 5, 5, 5)
-
-        self.add_canvas_btn = QPushButton("Добавить канвас")
-        self.add_canvas_btn.clicked.connect(self._add_canvas)
-        toolbar_layout.addWidget(self.add_canvas_btn)
-
-        self.add_object_btn = QPushButton("Добавить объект")
-        self.add_object_btn.setMenu(self._create_object_menu())
-        toolbar_layout.addWidget(self.add_object_btn)
-
-        toolbar_layout.addStretch()
-
-        # Кнопки управления зумом
-        self.zoom_out_btn = QPushButton("−")
-        self.zoom_out_btn.setFixedSize(30, 30)
-        self.zoom_out_btn.setFont(QFont("Arial", 14, QFont.Bold))
-        self.zoom_out_btn.setToolTip("Уменьшить масштаб (Ctrl + колесо вниз)")
-        self.zoom_out_btn.clicked.connect(self._zoom_out)
-        toolbar_layout.addWidget(self.zoom_out_btn)
-
-        self.zoom_value_label = QPushButton("100%")
-        self.zoom_value_label.setFixedSize(50, 30)
-        self.zoom_value_label.setToolTip("Текущий масштаб")
-        self.zoom_value_label.clicked.connect(self._reset_zoom)
-        toolbar_layout.addWidget(self.zoom_value_label)
-
-        self.zoom_in_btn = QPushButton("+")
-        self.zoom_in_btn.setFixedSize(30, 30)
-        self.zoom_in_btn.setFont(QFont("Arial", 14, QFont.Bold))
-        self.zoom_in_btn.setToolTip("Увеличить масштаб (Ctrl + колесо вверх)")
-        self.zoom_in_btn.clicked.connect(self._zoom_in)
-        toolbar_layout.addWidget(self.zoom_in_btn)
-
-        self.export_btn = QPushButton("Экспорт в PNG")
-        self.export_btn.clicked.connect(self._export_to_png)
-        toolbar_layout.addWidget(self.export_btn)
-
-        preview_layout.addWidget(self.toolbar)
-
         self.preview_frame = PreviewFrame(self)
+
+        self.toolbar = PreviewToolbar(self)
+        self.toolbar.set_preview_frame(self.preview_frame)
+        self.toolbar.canvas_added.connect(self._add_canvas)
+        self.toolbar.add_rect.connect(lambda: self._add_object("rect"))
+        self.toolbar.add_ellipse.connect(lambda: self._add_object("ellipse"))
+        self.toolbar.add_triangle.connect(lambda: self._add_object("triangle"))
+        self.toolbar.add_text.connect(lambda: self._add_object("text"))
+        self.toolbar.export_clicked.connect(self._export_to_png)
+        self.toolbar.create_toolbar(preview_layout)
+
+        self.preview_frame.zoom_changed.connect(self.toolbar.update_zoom_label)
         preview_layout.addWidget(self.preview_frame, 1)
 
         splitter.addWidget(preview_container)
@@ -219,44 +165,6 @@ class MainWindow(QMainWindow):
         self.controller.set_object_added_callback(self._on_object_added)
         self.controller.set_object_removed_callback(self._on_object_removed)
 
-    def _create_object_menu(self) -> QMenu:
-        """Создаёт меню для добавления объектов."""
-        menu = QMenu(self)
-
-        shapes_menu = menu.addMenu("Фигуры")
-        add_rect_action = shapes_menu.addAction("Прямоугольник")
-        add_rect_action.triggered.connect(lambda: self._add_object("rect"))
-        add_ellipse_action = shapes_menu.addAction("Эллипс")
-        add_ellipse_action.triggered.connect(lambda: self._add_object("ellipse"))
-        add_triangle_action = shapes_menu.addAction("Треугольник")
-        add_triangle_action.triggered.connect(lambda: self._add_object("triangle"))
-
-        add_text_action = menu.addAction("Текст")
-        add_text_action.triggered.connect(lambda: self._add_object("text"))
-
-        return menu
-
-    def _create_menu_bar(self):
-        """Создаёт верхнее меню."""
-        menubar = self.menuBar()
-
-        settings_menu = menubar.addMenu("Настройки")
-
-        settings_action = QAction("Настройки...", self)
-        settings_action.triggered.connect(self._open_settings)
-        settings_menu.addAction(settings_action)
-
-        settings_menu.addSeparator()
-
-        exit_action = QAction("Выход", self)
-        exit_action.triggered.connect(self.close)
-        settings_menu.addAction(exit_action)
-
-    def _open_settings(self):
-        """Открывает диалог настроек."""
-        dialog = SettingsDialog(self)
-        dialog.exec()
-
     def load_settings(self):
         """Загружает настройки."""
         settings = load_settings()
@@ -275,10 +183,8 @@ class MainWindow(QMainWindow):
         else:
             self.setStyleSheet(self.LIGHT_THEME)
 
-        if hasattr(self, 'toolbar'):
-            self.toolbar.setStyleSheet(
-                "background-color: #3c3c3c; padding: 5px;" if is_dark else "background-color: #f0f0f0; padding: 5px;"
-            )
+        if hasattr(self, 'toolbar') and isinstance(self.toolbar, PreviewToolbar):
+            self.toolbar.set_theme(is_dark)
 
     def _add_canvas(self):
         """Добавляет новый канвас."""
@@ -372,7 +278,8 @@ class MainWindow(QMainWindow):
             self.controller.set_active_canvas(canvas_id)
             self.preview_frame.set_active_canvas(canvas_id)
             self.properties_panel.set_canvas(canvas)
-            self._update_zoom_label()
+            zoom = self.preview_frame.get_zoom_factor(canvas_id)
+            self.toolbar.update_zoom_label(zoom)
 
     def _on_object_selected(self, obj: BaseObject):
         """Обработчик выбора объекта."""
@@ -467,50 +374,9 @@ class MainWindow(QMainWindow):
         if not scene:
             return
 
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Экспорт в PNG",
-            f"{canvas.name}.png",
-            "PNG Files (*.png)"
-        )
-
-        if not file_path:
-            return
-
-        if export_to_png(scene, canvas, file_path):
-            QMessageBox.information(self, "Успех", f"Канвас экспортирован в {file_path}")
-        else:
-            QMessageBox.critical(self, "Ошибка", "Не удалось сохранить файл")
+        self.toolbar.export_to_png(scene, canvas)
 
     def _get_active_canvas_id(self) -> str | None:
         """Возвращает ID активного канваса."""
         canvas = self.controller.get_active_canvas()
         return canvas.id if canvas else None
-
-    def _update_zoom_label(self):
-        """Обновляет метку масштаба."""
-        canvas_id = self._get_active_canvas_id()
-        if canvas_id:
-            zoom = self.preview_frame.get_zoom_factor(canvas_id)
-            self.zoom_value_label.setText(f"{int(zoom * 100)}%")
-
-    def _zoom_in(self):
-        """Увеличивает масштаб."""
-        canvas_id = self._get_active_canvas_id()
-        if canvas_id:
-            self.preview_frame.zoom_in(canvas_id)
-            self._update_zoom_label()
-
-    def _zoom_out(self):
-        """Уменьшает масштаб."""
-        canvas_id = self._get_active_canvas_id()
-        if canvas_id:
-            self.preview_frame.zoom_out(canvas_id)
-            self._update_zoom_label()
-
-    def _reset_zoom(self):
-        """Сбрасывает масштаб к 100%."""
-        canvas_id = self._get_active_canvas_id()
-        if canvas_id:
-            self.preview_frame.reset_zoom(canvas_id)
-            self._update_zoom_label()

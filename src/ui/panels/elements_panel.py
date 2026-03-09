@@ -115,7 +115,7 @@ class SceneTreeModel(QAbstractItemModel):
             return node.data
         if role == Qt.ItemDataRole.ForegroundRole:
             if node.is_canvas:
-                return QBrush(QColor(Qt.GlobalColor.darkBlue))
+                return QBrush(QColor(Qt.GlobalColor.gray))
         if role == Qt.ItemDataRole.FontRole:
             if node.is_canvas:
                 f = QFont()
@@ -647,6 +647,13 @@ class CustomTreeView(QTreeView):
     def update_object_lock(self, canvas_id: str, obj: BaseObject) -> None:
         self._model.update_object(canvas_id, obj)
 
+    def select_object(self, canvas_id: str, obj: BaseObject) -> None:
+        """Выделяет объект в дереве."""
+        node = self._model._object_nodes.get(obj.id)
+        if node:
+            self.setCurrentIndex(self._model._index_for_node(node))
+            self.expandToIndex(self._model._index_for_node(node))
+
     def get_canvas_id_for_object(self, obj: BaseObject) -> str | None:
         return self._model.get_canvas_id_for_obj(obj)
 
@@ -915,3 +922,6 @@ class ElementsPanel(QFrame):
 
     def update_object_lock(self, canvas_id: str, obj: BaseObject):
         self.tree._model.update_object(canvas_id, obj)
+
+    def select_object(self, canvas_id: str, obj: BaseObject):
+        self.tree.select_object(canvas_id, obj)
