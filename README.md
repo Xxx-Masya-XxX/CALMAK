@@ -1,9 +1,10 @@
 # CALMAK
-![окно приложения](assets/study/window.png)
+![окно приложения](assets/study/window.jpg)
 ## Установка
 
 чтобы установить зависимости необходимо установить uv 
-https://docs.astral.sh/uv/
+[гайд на установку](https://docs.astral.sh/uv/)
+
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
