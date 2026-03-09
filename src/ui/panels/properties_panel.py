@@ -184,57 +184,77 @@ class PropertiesPanel(QFrame):
 
         # Группа свойств текста
         self.text_group = QGroupBox("Текст")
-        text_layout = QFormLayout(self.text_group)
+        text_layout = QVBoxLayout(self.text_group)
 
-        self.edit_text_btn = QPushButton("Редактировать текст...")
-        self.edit_text_btn.clicked.connect(self._on_edit_text)
-        text_layout.addRow(self.edit_text_btn)
-
-        self.text_preview = QLineEdit()
-        self.text_preview.setReadOnly(True)
-        self.text_preview.setPlaceholderText("Предпросмотр")
-        text_layout.addRow("Предпросмотр:", self.text_preview)
+        # Многострочное текстовое поле
+        from PySide6.QtWidgets import QTextEdit
+        from PySide6.QtGui import QTextOption
+        self.text_edit = QTextEdit()
+        self.text_edit.setMaximumHeight(150)
+        self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.text_edit.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+        self.text_edit.textChanged.connect(self._on_text_changed)
+        text_layout.addWidget(QLabel("Текст:"))
+        text_layout.addWidget(self.text_edit)
 
         self.font_combo = QFontComboBox()
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
-        text_layout.addRow("Шрифт:", self.font_combo)
+        text_layout.addWidget(QLabel("Шрифт:"))
+        text_layout.addWidget(self.font_combo)
 
         self.font_size_spin = QDoubleSpinBox()
         self.font_size_spin.setRange(1, 200)
         self.font_size_spin.setDecimals(0)
         self.font_size_spin.valueChanged.connect(self._on_font_size_changed)
-        text_layout.addRow("Размер:", self.font_size_spin)
+        text_layout.addWidget(QLabel("Размер:"))
+        text_layout.addWidget(self.font_size_spin)
 
-        self.bold_check = QCheckBox()
+        # Стиль шрифта в горизонтальном layout
+        style_layout = QHBoxLayout()
+        style_layout.addWidget(QLabel("Стиль:"))
+        
+        self.bold_check = QCheckBox("Жирный")
         self.bold_check.stateChanged.connect(self._on_font_style_changed)
-        text_layout.addRow("Жирный:", self.bold_check)
+        style_layout.addWidget(self.bold_check)
 
-        self.italic_check = QCheckBox()
+        self.italic_check = QCheckBox("Курсив")
         self.italic_check.stateChanged.connect(self._on_font_style_changed)
-        text_layout.addRow("Курсив:", self.italic_check)
+        style_layout.addWidget(self.italic_check)
 
-        self.underline_check = QCheckBox()
+        self.underline_check = QCheckBox("Подчёркнутый")
         self.underline_check.stateChanged.connect(self._on_font_style_changed)
-        text_layout.addRow("Подчёркнутый:", self.underline_check)
+        style_layout.addWidget(self.underline_check)
+        
+        style_layout.addStretch()
+        text_layout.addLayout(style_layout)
 
+        # Цвет текста
+        color_layout = QHBoxLayout()
+        color_layout.addWidget(QLabel("Цвет текста:"))
         self.text_color_edit = QLineEdit()
         self.text_color_edit.setPlaceholderText("#000000")
         self.text_color_edit.setReadOnly(True)
-        text_layout.addRow("Цвет текста:", self.text_color_edit)
-
-        self.text_color_btn = QPushButton("Выбрать цвет")
+        color_layout.addWidget(self.text_color_edit)
+        self.text_color_btn = QPushButton("Выбрать")
         self.text_color_btn.clicked.connect(self._on_text_color_pick)
-        text_layout.addRow("", self.text_color_btn)
+        color_layout.addWidget(self.text_color_btn)
+        text_layout.addLayout(color_layout)
 
+        # Выравнивание
+        align_layout = QHBoxLayout()
+        align_layout.addWidget(QLabel("Выравнивание:"))
+        
         self.text_align_h_combo = QComboBox()
         self.text_align_h_combo.addItems(["Слева", "По центру", "Справа"])
         self.text_align_h_combo.currentIndexChanged.connect(self._on_text_align_changed)
-        text_layout.addRow("Выравнивание (гор.):", self.text_align_h_combo)
+        align_layout.addWidget(self.text_align_h_combo)
 
         self.text_align_v_combo = QComboBox()
         self.text_align_v_combo.addItems(["Сверху", "По центру", "Снизу"])
         self.text_align_v_combo.currentIndexChanged.connect(self._on_text_align_changed)
-        text_layout.addRow("Выравнивание (верт.):", self.text_align_v_combo)
+        align_layout.addWidget(self.text_align_v_combo)
+        
+        text_layout.addLayout(align_layout)
 
         layout.addWidget(self.text_group)
         self.text_group.setVisible(False)
@@ -369,7 +389,9 @@ class PropertiesPanel(QFrame):
         self.stroke_group.setVisible(True)
 
         if isinstance(obj, TextObject):
-            self.text_preview.setText(obj.text[:50] + "..." if len(obj.text) > 50 else obj.text)
+            self.text_edit.blockSignals(True)
+            self.text_edit.setText(obj.text)
+            self.text_edit.blockSignals(False)
             self.font_combo.setCurrentFont(QFont(obj.font_family))
             self.font_size_spin.setValue(obj.font_size)
             self.bold_check.setChecked(obj.font_bold)
@@ -477,7 +499,6 @@ class PropertiesPanel(QFrame):
         self.visible_check.setChecked(False)
         self.shape_type_combo.setCurrentIndex(0)
 
-        self.text_preview.clear()
         self.font_size_spin.setValue(16)
         self.text_color_edit.clear()
         self.bold_check.setChecked(False)
@@ -515,7 +536,7 @@ class PropertiesPanel(QFrame):
         self.visible_check.blockSignals(block)
         self.shape_type_combo.blockSignals(block)
 
-        self.text_preview.blockSignals(block)
+        self.text_edit.blockSignals(block)
         self.font_combo.blockSignals(block)
         self.font_size_spin.blockSignals(block)
         self.bold_check.blockSignals(block)
@@ -623,11 +644,10 @@ class PropertiesPanel(QFrame):
             self._current_object.image_fill = state == 2
             self._emit_object_changed()
 
-    def _on_edit_text(self):
+    def _on_text_changed(self):
         if isinstance(self._current_object, TextObject):
-            dialog = TextEditorDialog(self._current_object, self)
-            if dialog.exec():
-                self._emit_object_changed()
+            self._current_object.text = self.text_edit.toPlainText()
+            self._emit_object_changed()
 
     def _on_font_changed(self, font: QFont):
         if isinstance(self._current_object, TextObject):

@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QCheckBox, QColorDialog, QLineEdit, QComboBox
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QFont, QColor, QTextOption
 
 from ...models import TextObject
 
@@ -32,7 +32,7 @@ class TextEditorDialog(QDialog):
         self.text_edit = QTextEdit()
         self.text_edit.setPlainText(text_object.text)
         self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        self.text_edit.setWordWrapMode(True)
+        self.text_edit.setWordWrapMode(QTextOption.WrapMode.WordWrap)
         text_layout.addWidget(self.text_edit)
 
         layout.addWidget(text_group)

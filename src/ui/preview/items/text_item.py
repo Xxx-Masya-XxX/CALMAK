@@ -82,11 +82,6 @@ class TextGraphicsItem(QGraphicsTextItem):
 
     def paint(self, painter: QPainter, option, widget):
         """Рисует текст с обводкой и выравниванием."""
-        # Добавляем обрезку по границам родительского элемента (канваса)
-        if self.parentItem():
-            parent_rect = self.parentItem().boundingRect()
-            painter.setClipRect(parent_rect, Qt.ClipOperation.IntersectClip)
-
         doc_height = self.document().size().height()
         y_offset = 0
 

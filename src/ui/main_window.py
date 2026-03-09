@@ -43,8 +43,7 @@ class MainWindow(QMainWindow):
 
     DARK_THEME = """
         QMainWindow { background-color: #2b2b2b; }
-        QObject { background-color: #1e1e1e; }
-        QFrame { background-color: #1e1e1e; }
+
         QTreeWidget { background-color: #1e1e1e; color: #ffffff; }
         QGraphicsView { background-color: #1e1e1e; }
         QGroupBox { color: #ffffff; }
