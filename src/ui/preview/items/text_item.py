@@ -1,197 +1,307 @@
-"""Графический элемент для текста."""
+"""Графический элемент для текстового объекта."""
 
-from PySide6.QtWidgets import QGraphicsTextItem
-from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsTextItem
+from PySide6.QtGui import (
+    QPainter, QFont, QColor, QPen, QBrush, QTextOption,
+    QFontMetricsF, QTextDocument
+)
 from PySide6.QtCore import Qt, QRectF, QPointF
 
-from ....models.objects.text_object import TextObject
 from .base_item import ResizeMixin
+from ....models.objects.text_object import TextObject
 
 
-class TextGraphicsItem(ResizeMixin, QGraphicsTextItem):
-    """Текстовый элемент с поддержкой изменения размера."""
+# Маппинг выравнивания
+_HALIGN = {
+    "left": Qt.AlignmentFlag.AlignLeft,
+    "center": Qt.AlignmentFlag.AlignHCenter,
+    "right": Qt.AlignmentFlag.AlignRight,
+}
 
-    def __init__(self, obj: TextObject, parent_item=None):
-        QGraphicsTextItem.__init__(self, obj.text, parent_item)
+_VALIGN = {
+    "top": Qt.AlignmentFlag.AlignTop,
+    "middle": Qt.AlignmentFlag.AlignVCenter,
+    "bottom": Qt.AlignmentFlag.AlignBottom,
+}
+
+
+class TextGraphicsItem(ResizeMixin, QGraphicsItem):
+    """Графический элемент для отображения и редактирования TextObject.
+
+    Поддерживает:
+    - Многострочный текст с переносом слов
+    - Форматирование: bold, italic, underline
+    - Горизонтальное и вертикальное выравнивание
+    - Изменение размера через ResizeMixin
+    - auto_height: подстройка высоты под содержимое
+    """
+
+    def __init__(self, obj: TextObject, parent=None):
+        QGraphicsItem.__init__(self, parent)
         self.obj = obj
-        self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable, not obj.locked)
-        self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsSelectable)
-        self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemSendsGeometryChanges)
-        self.setAcceptHoverEvents(True)
-        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
 
+        # Состояние ResizeMixin
         self._resizing = False
         self._resize_handle_size = 8.0
-        self._resize_edge = None
-        self._resize_start_pos = QPointF(0, 0)
-        self._original_x = 0.0
-        self._original_y = 0.0
-        self._original_width = 0.0
-        self._original_height = 0.0
-        self._current_cursor = None
+        self._resize_edge: str | None = None
+        self._resize_start_pos = QPointF()
+        self._original_x = obj.x
+        self._original_y = obj.y
+        self._original_width = obj.width
+        self._original_height = obj.height
+        self._current_cursor: str | None = None
 
         self.setPos(obj.x, obj.y)
-        self.update_font()
-        self.update_colors()
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not obj.locked)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setAcceptHoverEvents(True)
 
-    def bounding_rect_for_resize(self) -> QRectF:
-        """Возвращает границы для изменения размера."""
-        doc_height = self.document().size().height()
-        return QRectF(0, 0, self.obj.width, max(self.obj.height, doc_height))
+        if obj.rotation != 0.0:
+            self.setRotation(obj.rotation)
 
-    def update_font(self):
-        """Обновляет шрифт."""
-        font = QFont(self.obj.font_family, self.obj.font_size)
+    # ------------------------------------------------------------------
+    # Геометрия
+    # ------------------------------------------------------------------
+
+    def boundingRect(self) -> QRectF:
+        margin = self._resize_handle_size
+        return QRectF(
+            -margin, -margin,
+            self.obj.width + margin * 2,
+            self.obj.height + margin * 2,
+        )
+
+    def rect(self) -> QRectF:
+        return QRectF(0, 0, self.obj.width, self.obj.height)
+
+    def update_geometry(self):
+        """Обновляет геометрию после изменения размера."""
+        self.prepareGeometryChange()
+        self.setPos(self.obj.x, self.obj.y)
+        if self.obj.auto_height:
+            self._adjust_height()
+        self.update()
+
+    def _adjust_height(self):
+        """Подстраивает высоту блока под содержимое текста."""
+        doc = self._make_document()
+        doc.setTextWidth(self.obj.width - self.obj.padding_left - self.obj.padding_right)
+        content_height = doc.size().height()
+        new_height = content_height + self.obj.padding_top + self.obj.padding_bottom
+        if abs(new_height - self.obj.height) > 0.5:  # избегаем лишних обновлений
+            self.prepareGeometryChange()
+            self.obj.height = new_height
+
+    # ------------------------------------------------------------------
+    # Построение QTextDocument (шрифт, выравнивание, перенос)
+    # ------------------------------------------------------------------
+
+    def _make_font(self) -> QFont:
+        font = QFont(self.obj.font_family, int(self.obj.font_size))
         font.setBold(self.obj.font_bold)
         font.setItalic(self.obj.font_italic)
         font.setUnderline(self.obj.font_underline)
-        self.setFont(font)
-        self.setPlainText(self.obj.text)
-        self.setTextWidth(self.obj.width)
-
-        doc = self.document()
-        block = doc.firstBlock()
-        block_format = block.blockFormat()
-
-        if self.obj.text_align_h == "center":
-            block_format.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        elif self.obj.text_align_h == "right":
-            block_format.setAlignment(Qt.AlignmentFlag.AlignRight)
-        else:
-            block_format.setAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        cursor = self.textCursor()
-        cursor.setBlockFormat(block_format)
-
-        doc_height = self.document().size().height()
-        self.obj.height = max(self.obj.height, doc_height)
-
-        self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
-        self.setRotation(self.obj.rotation)
-
-    def update_colors(self):
-        """Обновляет цвета текста и обводки."""
-        self.setDefaultTextColor(QColor(self.obj.text_color))
-        self.setFlag(QGraphicsTextItem.GraphicsItemFlag.ItemIsMovable, not self.obj.locked)
-        self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
-        self.setRotation(self.obj.rotation)
+        return font
+    def update_font(self):
+        """Обновляет отображение после изменения шрифта или текста."""
+        self.prepareGeometryChange()
+        if self.obj.auto_height:
+            self._adjust_height()
         self.update()
+    def _make_document(self) -> 'QTextDocument':
+        """Создаёт QTextDocument с текстом и форматированием объекта."""
+        from PySide6.QtGui import QTextDocument, QTextCursor, QTextCharFormat, QTextBlockFormat
 
-    def boundingRect(self) -> QRectF:
-        """Переопределённая граница для обработки изменения размера."""
-        doc_height = self.document().size().height()
-        base_rect = QRectF(0, 0, self.obj.width, max(self.obj.height, doc_height))
-        return base_rect.adjusted(
-            -self._resize_handle_size,
-            -self._resize_handle_size,
-            self._resize_handle_size,
-            self._resize_handle_size
+        doc = QTextDocument()
+        doc.setDefaultFont(self._make_font())
+
+        # Настройка блочного формата (выравнивание, межстрочный интервал)
+        block_fmt = QTextBlockFormat()
+        block_fmt.setAlignment(_HALIGN.get(self.obj.text_align_h, Qt.AlignmentFlag.AlignLeft))
+        block_fmt.setLineHeight(
+            self.obj.line_height * 100,
+            1,  # ProportionalHeight
         )
 
-    def paint(self, painter: QPainter, option, widget):
-        """Рисует текст с обводкой и выравниванием."""
-        doc_height = self.document().size().height()
-        y_offset = 0
+        # Символьный формат (цвет)
+        char_fmt = QTextCharFormat()
+        char_fmt.setForeground(QColor(self.obj.text_color))
+        char_fmt.setFont(self._make_font())
 
-        if self.obj.text_align_v == "center":
-            y_offset = (self.obj.height - doc_height) / 2
+        cursor = QTextCursor(doc)
+        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.setBlockFormat(block_fmt)
+        cursor.setCharFormat(char_fmt)
+        cursor.insertText(self.obj.text)
+
+        if not self.obj.word_wrap:
+            doc.setTextWidth(-1)
+
+        return doc
+
+    # ------------------------------------------------------------------
+    # Отрисовка
+    # ------------------------------------------------------------------
+    def update_colors(self):
+        """Обновляет цвета после изменения в модели."""
+        self.update()
+    def paint(self, painter: QPainter, option, widget=None):
+        if not self.obj.visible:
+            return
+
+        # auto_height пересчитываем перед отрисовкой
+        if self.obj.auto_height:
+            self._adjust_height()
+
+        painter.save()  # ← было пропущено
+
+        content_rect = QRectF(0, 0, self.obj.width, self.obj.height)  # ← не было определено
+
+        # Фон
+        if self.obj.color and self.obj.color != "transparent":
+            painter.fillRect(content_rect, QColor(self.obj.color))
+
+        # Область текста с учётом padding
+        text_rect = QRectF(
+            self.obj.padding_left,
+            self.obj.padding_top,
+            self.obj.width - self.obj.padding_left - self.obj.padding_right,
+            self.obj.height - self.obj.padding_top - self.obj.padding_bottom,
+        )
+
+        # Текст с outline букв (если stroke_enabled) или обычный
+        self._draw_text_with_stroke(painter, text_rect)
+
+        painter.restore()
+
+        # Рамка выделения
+        if self.isSelected():
+            pen = QPen(QColor("#2196F3"), 1, Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(content_rect)
+
+    def _draw_text_with_stroke(self, painter: QPainter, text_rect: QRectF):
+        """Рисует текст — с outline букв если stroke_enabled, иначе обычно."""
+        from PySide6.QtGui import QPainterPath, QTextLayout, QTextOption
+
+        doc = self._make_document()
+        doc.setTextWidth(text_rect.width())
+        doc_height = doc.size().height()
+
+        # Вертикальное выравнивание
+        v_offset = 0.0
+        if self.obj.text_align_v == "middle":
+            v_offset = max(0.0, (text_rect.height() - doc_height) / 2)
         elif self.obj.text_align_v == "bottom":
-            y_offset = self.obj.height - doc_height
+            v_offset = max(0.0, text_rect.height() - doc_height)
 
-        if y_offset != 0:
-            painter.save()
-            painter.translate(0, y_offset)
+        painter.save()
+        painter.translate(text_rect.x(), text_rect.y() + v_offset)
+        painter.setClipRect(QRectF(0, 0, text_rect.width(), text_rect.height()))
 
         if self.obj.stroke_enabled:
-            painter.save()
-            pen = QPen(QColor(self.obj.stroke_color), self.obj.stroke_width)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            font = self._make_font()
+            metrics = QFontMetricsF(font)
+            halign = _HALIGN.get(self.obj.text_align_h, Qt.AlignmentFlag.AlignLeft)
 
-            font = self.font()
-            painter.setFont(font)
+            y = 0.0
+            # Итерируемся по параграфам (разбитым по \n)
+            for paragraph in self.obj.text.split("\n"):
+                if not paragraph:
+                    # Пустая строка — просто смещаемся вниз
+                    y += metrics.height() * self.obj.line_height
+                    continue
 
-            doc = self.document()
-            block = doc.firstBlock()
+                # QTextLayout для корректного word_wrap внутри параграфа
+                layout = QTextLayout(paragraph, font)
+                opt = QTextOption()
+                opt.setWrapMode(
+                    QTextOption.WrapMode.WordWrap if self.obj.word_wrap
+                    else QTextOption.WrapMode.NoWrap
+                )
+                opt.setAlignment(halign)
+                layout.setTextOption(opt)
+                layout.beginLayout()
 
-            while block.isValid():
-                layout = block.layout()
-                if layout:
-                    block_text = block.text()
-                    for line_idx in range(layout.lineCount()):
-                        line = layout.lineAt(line_idx)
-                        start = line.textStart()
-                        length = line.textLength()
-                        if length > 0:
-                            line_text = block_text[start:start + length]
-                            if line_text.endswith('\n'):
-                                line_text = line_text[:-1]
-                            if line_text:
-                                path = QPainterPath()
-                                path.addText(line.x(), line.y() + font.pointSize(), font, line_text)
-                                painter.drawPath(path)
-                block = block.next()
+                while True:
+                    line = layout.createLine()
+                    if not line.isValid():
+                        break
+                    line.setLineWidth(text_rect.width())
+                    line.setPosition(QPointF(0, y))
+                    y += line.height() * self.obj.line_height
 
-            painter.restore()
+                layout.endLayout()
 
-        super().paint(painter, option, widget)
+                # Рисуем каждую линию через QPainterPath (для outline)
+                for i in range(layout.lineCount()):
+                    line = layout.lineAt(i)
+                    line_text = paragraph[line.textStart(): line.textStart() + line.textLength()]
 
-        if self.isSelected():
-            painter.save()
-            pen = QPen(QColor(Qt.GlobalColor.blue), 2)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            rect = QRectF(0, 0, self.obj.width, self.obj.height)
-            painter.drawRect(rect)
-            painter.restore()
+                    # Позиция X по выравниванию
+                    line_w = metrics.horizontalAdvance(line_text)
+                    if halign == Qt.AlignmentFlag.AlignHCenter:
+                        x_off = (text_rect.width() - line_w) / 2
+                    elif halign == Qt.AlignmentFlag.AlignRight:
+                        x_off = text_rect.width() - line_w
+                    else:
+                        x_off = 0.0
 
-        if y_offset != 0:
-            painter.restore()
+                    path = QPainterPath()
+                    path.addText(
+                        x_off,
+                        line.position().y() + metrics.ascent(),
+                        font,
+                        line_text,
+                    )
+
+                    # Обводка поверх заливки — сначала stroke, потом fill
+                    pen = QPen(QColor(self.obj.stroke_color), self.obj.stroke_width)
+                    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                    painter.strokePath(path, pen)
+                    painter.fillPath(path, QColor(self.obj.text_color))
+        else:
+            doc.drawContents(painter)
+
+        painter.restore()
+    # ------------------------------------------------------------------
+    # События мыши — делегируем в ResizeMixin
+    # ------------------------------------------------------------------
 
     def mousePressEvent(self, event):
-        """Обработка нажатия мыши."""
-        if self.resize_mouse_press(event):
+        if self.obj.locked:
+            event.ignore()
             return
-        super().mousePressEvent(event)
+        if not self.resize_mouse_press(event):
+            super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        """Обработка перемещения мыши."""
-        if self.resize_mouse_move(event):
+        if self.obj.locked:
+            event.ignore()
             return
-        super().mouseMoveEvent(event)
+        if not self.resize_mouse_move(event):
+            super().mouseMoveEvent(event)
+            # Синхронизируем позицию в модель при перемещении
+            pos = self.pos()
+            self.obj.x = pos.x()
+            self.obj.y = pos.y()
 
     def mouseReleaseEvent(self, event):
-        """Обработка отпускания мыши."""
         self.resize_mouse_release(event)
         super().mouseReleaseEvent(event)
 
+    def hoverMoveEvent(self, event):
+        self.resize_hover_move(event)
+        super().hoverMoveEvent(event)
+
+    # ------------------------------------------------------------------
+    # ResizeMixin callback
+    # ------------------------------------------------------------------
+
     def on_resize(self):
-        """Вызывается после изменения размера для обновления текста."""
-        self.update_font()
-        self.setPos(self.obj.x, self.obj.y)
-        self.update()
-
-    def itemChange(self, change, value):
-        """Обработка изменений элемента."""
-        if change == QGraphicsTextItem.GraphicsItemChange.ItemPositionHasChanged:
-            if self._resizing:
-                return QPointF(0, 0)
-
-            new_pos = value.toPoint()
-            self.obj.x = new_pos.x()
-            self.obj.y = new_pos.y()
-
-            if hasattr(self, 'scene') and self.scene():
-                scene = self.scene()
-                # Обновляем позиции дочерних элементов
-                if hasattr(scene, '_update_children_positions'):
-                    scene._update_children_positions(self.obj)
-                if hasattr(scene, 'object_moved'):
-                    scene.object_moved.emit(self.obj)
-
-            return new_pos
-        elif change == QGraphicsTextItem.GraphicsItemChange.ItemSelectedHasChanged:
-            self.update()
-
-        return super().itemChange(change, value)
+        """После resize обновляем auto_height если включён."""
+        if self.obj.auto_height:
+            self._adjust_height()
