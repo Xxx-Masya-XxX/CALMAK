@@ -46,7 +46,15 @@ class ImageGraphicsItem(ResizeMixin, QGraphicsRectItem):
         self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
         self.setRotation(self.obj.rotation)
         self.update()
+    def mouseReleaseEvent(self, event):
+        was_resizing = self._resizing  # запоминаем ДО вызова resize_mouse_release
+        self.resize_mouse_release(event)
+        super().mouseReleaseEvent(event)
 
+        if was_resizing:
+            scene = self.scene()
+            if scene and hasattr(scene, 'object_resized'):
+                scene.object_resized.emit(self.obj)
     def paint(self, painter: QPainter, option, widget):
         """Рисует изображение с обводкой."""
         painter.save()

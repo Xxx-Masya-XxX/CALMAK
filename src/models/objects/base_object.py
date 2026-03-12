@@ -33,7 +33,11 @@ class BaseObject:
     stroke_enabled: bool = False
     stroke_color: str = "#000000"
     stroke_width: float = 1.0
+    # Тип линии обводки: solid, dash, dot, dash_dot
+    stroke_style: str = "solid"
 
+    # Позиция обводки: center, outside, inside
+    stroke_position: str = "center"
     # Изображение фона
     image_path: str | None = None
     image_fill: bool = False  # Заполнять ли изображением
@@ -167,6 +171,8 @@ class BaseObject:
             "stroke_enabled": self.stroke_enabled,
             "stroke_color": self.stroke_color,
             "stroke_width": self.stroke_width,
+            "stroke_style": self.stroke_style,
+            "stroke_position": self.stroke_position,
             "image_path": self.image_path,
             "image_fill": self.image_fill,
             "shape_type": self.shape_type,
@@ -190,6 +196,8 @@ class BaseObject:
             stroke_enabled=data.get("stroke_enabled", False),
             stroke_color=data.get("stroke_color", "#000000"),
             stroke_width=data.get("stroke_width", 1.0),
+            stroke_style=data.get("stroke_style", "solid"),
+            stroke_position=data.get("stroke_position", "center"),
             image_path=data.get("image_path"),
             image_fill=data.get("image_fill", False),
             shape_type=data.get("shape_type", "rect"),

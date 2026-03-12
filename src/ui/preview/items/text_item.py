@@ -300,7 +300,15 @@ class TextGraphicsItem(ResizeMixin, QGraphicsItem):
     # ------------------------------------------------------------------
     # ResizeMixin callback
     # ------------------------------------------------------------------
+    def mouseReleaseEvent(self, event):
+        was_resizing = self._resizing  # запоминаем ДО вызова resize_mouse_release
+        self.resize_mouse_release(event)
+        super().mouseReleaseEvent(event)
 
+        if was_resizing:
+            scene = self.scene()
+            if scene and hasattr(scene, 'object_resized'):
+                scene.object_resized.emit(self.obj)
     def on_resize(self):
         """После resize обновляем auto_height если включён."""
         if self.obj.auto_height:

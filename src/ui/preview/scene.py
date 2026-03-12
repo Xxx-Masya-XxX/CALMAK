@@ -56,7 +56,7 @@ class PreviewScene(QGraphicsScene):
     object_selected = Signal(BaseObject)
     object_changed = Signal(BaseObject)
     object_moved = Signal(BaseObject)
-
+    object_resized = Signal(BaseObject)
     def __init__(self, canvas: Canvas, parent=None):
         super().__init__(parent)
         self.canvas = canvas

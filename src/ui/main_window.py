@@ -149,10 +149,10 @@ class MainWindow(QMainWindow):
         self.elements_panel.order_changed.connect(self._on_order_changed)
         self.elements_panel.add_child_requested.connect(self._on_add_child_requested)
         self.elements_panel.delete_requested.connect(self._on_delete_requested)
-
         # Превью
         self.preview_frame.object_selected.connect(self._on_object_selected)
         self.preview_frame.object_moved.connect(self._on_object_moved)
+        self.preview_frame.object_resized.connect(self._on_object_resized)
 
         # Панель свойств
         self.properties_panel.canvas_changed.connect(self._on_canvas_changed)
@@ -198,6 +198,9 @@ class MainWindow(QMainWindow):
 
         self.controller.add_canvas(canvas)
 
+    def _on_object_resized(self, obj: BaseObject):
+        """Обработчик изменения размера объекта."""
+        self.properties_panel.update_object_geometry(obj)
     def _add_object(self, obj_type: str = "rect", parent: BaseObject | None = None):
         """Добавляет новый объект на активный канвас."""
         canvas = self.controller.get_active_canvas()
@@ -370,7 +373,8 @@ class MainWindow(QMainWindow):
 
         collect_post_order(canvas_node)
         return result
-
+    def _on_object_resized(self, obj: BaseObject):
+        self.properties_panel.update_object_geometry(obj)
     def _on_object_added(self, canvas_id: str, obj: BaseObject):
         """Обработчик добавления объекта."""
         self.elements_panel.add_object(canvas_id, obj)

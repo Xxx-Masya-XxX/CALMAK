@@ -117,13 +117,17 @@ class ShapeGraphicsItem(ResizeMixin, QGraphicsRectItem):
         painter.restore()
 
         if self.isSelected():
-            painter.save()
-            pen = QPen(QColor(Qt.GlobalColor.blue), 2)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(rect)
-            painter.restore()
+            from .stroke_renderer import draw_stroke
+            draw_stroke(painter, self.obj)
+    def mouseReleaseEvent(self, event):
+        was_resizing = self._resizing  # запоминаем ДО вызова resize_mouse_release
+        self.resize_mouse_release(event)
+        super().mouseReleaseEvent(event)
 
+        if was_resizing:
+            scene = self.scene()
+            if scene and hasattr(scene, 'object_resized'):
+                scene.object_resized.emit(self.obj)
     def hoverMoveEvent(self, event):
         """Обработка наведения мыши."""
         if self.resize_hover_move(event):
