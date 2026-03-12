@@ -8,6 +8,7 @@ from ...models import Canvas, BaseObject, TextObject, ImageObject, ShapeObject
 from .items.text_item import TextGraphicsItem
 from .items.image_item import ImageGraphicsItem
 from .items.shape_item import ShapeGraphicsItem
+from .items.base_item import BaseGraphicsItem
 
 
 class CanvasRectItem(QGraphicsRectItem):
@@ -57,11 +58,13 @@ class PreviewScene(QGraphicsScene):
     object_changed = Signal(BaseObject)
     object_moved = Signal(BaseObject)
     object_resized = Signal(BaseObject)
+    object_geometry_changed = Signal(BaseObject)
+
     def __init__(self, canvas: Canvas, parent=None):
         super().__init__(parent)
         self.canvas = canvas
-        self._object_items: dict[BaseObject, QGraphicsRectItem] = {}
-        self._items_by_id: dict[str, QGraphicsRectItem] = {}
+        self._object_items: dict[BaseObject, BaseGraphicsItem] = {}
+        self._items_by_id: dict[str, BaseGraphicsItem] = {}
         self._z_counter = 0
 
         # Добавляем фон канваса
@@ -141,15 +144,12 @@ class PreviewScene(QGraphicsScene):
 
     def update_object(self, obj: BaseObject):
         """Обновляет объект на сцене."""
-        if obj in self._object_items:
-            item = self._object_items[obj]
-            if isinstance(item, TextGraphicsItem):
-                item.update_font()
-                item.update_colors()
-            elif isinstance(item, ImageGraphicsItem):
-                item.update_appearance()
-            elif isinstance(item, ShapeGraphicsItem):
-                item.update_appearance()
+        if obj not in self._object_items:
+            return
+        item = self._object_items[obj]
+        item.sync_from_model()
+        if hasattr(item, 'update_font'):
+            item.update_font()
 
     def update_canvas(self, canvas: Canvas):
         """Обновляет канвас."""
@@ -158,7 +158,7 @@ class PreviewScene(QGraphicsScene):
         self.canvas_item.update_size()
         self.setSceneRect(0, 0, canvas.width, canvas.height)
 
-    def get_item_for_object(self, obj: BaseObject) -> QGraphicsRectItem | None:
+    def get_item_for_object(self, obj: BaseObject) -> BaseGraphicsItem | None:
         """Получает графический элемент для объекта."""
         return self._object_items.get(obj)
 
@@ -219,7 +219,7 @@ class PreviewScene(QGraphicsScene):
         """
         result = []
 
-        def collect_objects_post_order(item: QGraphicsRectItem):
+        def collect_objects_post_order(item: BaseGraphicsItem):
             """Собирает объекты в пост-порядке (дети перед родителями)."""
             # Сначала обрабатываем дочерние элементы (с конца к началу)
             for child_item in reversed(item.childItems()):

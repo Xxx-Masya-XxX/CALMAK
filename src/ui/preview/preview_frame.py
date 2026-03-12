@@ -55,6 +55,8 @@ class PreviewFrame(QWidget):
     object_moved = Signal(BaseObject)
     zoom_changed = Signal(float)  # Сигнал об изменении зума
     object_resized = Signal(BaseObject)
+    object_geometry_changed = Signal(BaseObject)
+
     def __init__(self, main_window=None):
         super().__init__()
         self.main_window = main_window
@@ -79,6 +81,7 @@ class PreviewFrame(QWidget):
         scene.object_selected.connect(self.object_selected.emit)
         scene.object_moved.connect(self.object_moved.emit)
         scene.object_resized.connect(self.object_resized.emit)
+        scene.object_geometry_changed.connect(self.object_geometry_changed.emit)
         self._scenes[canvas.id] = scene
 
         # Создаём view

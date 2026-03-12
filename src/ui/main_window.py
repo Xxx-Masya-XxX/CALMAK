@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
         self.preview_frame.object_selected.connect(self._on_object_selected)
         self.preview_frame.object_moved.connect(self._on_object_moved)
         self.preview_frame.object_resized.connect(self._on_object_resized)
+        self.preview_frame.object_geometry_changed.connect(self._on_object_geometry_changed)
 
         # Панель свойств
         self.properties_panel.canvas_changed.connect(self._on_canvas_changed)
@@ -292,6 +293,10 @@ class MainWindow(QMainWindow):
         """Обработчик перемещения объекта."""
         self.properties_panel.update_object_position(obj)
 
+    def _on_object_geometry_changed(self, obj: BaseObject):
+        """Обработчик изменения геометрии объекта (во время resize)."""
+        self.properties_panel.update_object_geometry(obj)
+
     def _on_canvas_context_menu(self, target):
         """Обработчик контекстного меню канваса или объекта."""
         pass  # Меню обрабатывается в elements_panel
@@ -373,8 +378,7 @@ class MainWindow(QMainWindow):
 
         collect_post_order(canvas_node)
         return result
-    def _on_object_resized(self, obj: BaseObject):
-        self.properties_panel.update_object_geometry(obj)
+
     def _on_object_added(self, canvas_id: str, obj: BaseObject):
         """Обработчик добавления объекта."""
         self.elements_panel.add_object(canvas_id, obj)

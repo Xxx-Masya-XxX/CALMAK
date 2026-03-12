@@ -179,7 +179,7 @@ class TextGraphicsItem(BaseGraphicsItem):
         painter.restore()
 
     def _layout_lines(self, font: QFont, width: float) -> list[tuple[str, float]]:
-        """Разбивает текст на строки с учётом \n и word_wrap.
+        """Разбивает текст на строки с учётом \\n и word_wrap.
 
         Возвращает список (текст_строки, высота_строки).
         """
