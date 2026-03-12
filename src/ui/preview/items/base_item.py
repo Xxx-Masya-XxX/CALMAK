@@ -73,12 +73,14 @@ class BaseGraphicsItem(QGraphicsItem):
         return QRectF(-m, -m, self.obj.width + m * 2, self.obj.height + m * 2)
 
     def sync_from_model(self):
-        """Синхронизирует визуальное состояние из модели (вызывать после внешних изменений)."""
         self.prepareGeometryChange()
+        # Отключаем геометри-сигналы на время синхронизации
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
         self.setPos(self.obj.x, self.obj.y)
         self.setTransformOriginPoint(self.obj.width / 2, self.obj.height / 2)
         self.setRotation(self.obj.rotation)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, not self.obj.locked)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.update()
 
     # ------------------------------------------------------------------
@@ -252,7 +254,6 @@ class BaseGraphicsItem(QGraphicsItem):
             else:
                 new_w = MIN_SIZE
                 new_x = self._orig_x + self._orig_w - MIN_SIZE
-
         elif "right" in edge:
             new_w = max(MIN_SIZE, self._orig_w + delta.x())
 
@@ -263,23 +264,24 @@ class BaseGraphicsItem(QGraphicsItem):
             else:
                 new_h = MIN_SIZE
                 new_y = self._orig_y + self._orig_h - MIN_SIZE
-
         elif "bottom" in edge:
             new_h = max(MIN_SIZE, self._orig_h + delta.y())
 
-        # Обновляем модель
+        # ← prepareGeometryChange ДО изменения модели
+        self.prepareGeometryChange()
+
         self.obj.x = new_x
         self.obj.y = new_y
         self.obj.width = new_w
         self.obj.height = new_h
 
-        # Обновляем визуал
-        self.prepareGeometryChange()
+        # Блокируем itemChange чтобы setPos не вызвал _emit_moved во время resize
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
         self.setPos(new_x, new_y)
         self.setTransformOriginPoint(new_w / 2, new_h / 2)
-        self.update()
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
 
-        # Сигнал real-time для панели свойств
+        self.update()
         self._emit_geometry_changed()
 
     # ------------------------------------------------------------------
