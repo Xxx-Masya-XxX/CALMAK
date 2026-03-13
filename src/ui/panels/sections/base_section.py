@@ -32,8 +32,17 @@ class BaseSection(QGroupBox):
         self._obj = obj
         self._blocking = True
         self._load(obj)
-        self._blocking = False
+        self._block_widgets(False)
 
+    def _block_widgets(self, block: bool):
+        """Блокирует сигналы всех интерактивных дочерних виджетов."""
+        from PySide6.QtWidgets import (
+            QAbstractSpinBox, QAbstractButton,
+            QComboBox, QTextEdit, QLineEdit
+        )
+        for cls in (QAbstractSpinBox, QAbstractButton, QComboBox, QTextEdit, QLineEdit):
+            for widget in self.findChildren(cls):
+                widget.blockSignals(block)
     def _load(self, obj: BaseObject):
         """Реализация загрузки. Переопределить в наследнике."""
         pass

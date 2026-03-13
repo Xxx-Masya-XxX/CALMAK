@@ -19,8 +19,7 @@ from ..ui.toolbar import PreviewToolbar
 from ..ui.menubar import AppMenuBar
 from ..config import load_settings, save_settings
 from ..utils.random_color import _random_color
-
-
+from ..ui.debug_window import DebugWindow
 class MainWindow(QMainWindow):
     """Главное окно приложения."""
 
@@ -63,7 +62,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("CALMAK - Редактор")
         self.setMinimumSize(1200, 800)
-
         # Контроллер сцены
         self.controller = SceneController()
 
@@ -138,9 +136,38 @@ class MainWindow(QMainWindow):
 
         # Добавляем первый канвас
         self._add_canvas()
-
+        self._debug_window: DebugWindow | None = None
+    def _open_debug(self):
+        """Открывает debug окно инспектора сцены."""
+        if self._debug_window and self._debug_window.isVisible():
+            self._debug_window.raise_()
+            return
+ 
+        def get_scene_data():
+            """Возвращает (objects, items_by_id) для активного канваса."""
+            canvas = self.controller.get_active_canvas()
+            if not canvas:
+                return [], {}
+ 
+            objects = self.controller.get_objects(canvas.id)
+ 
+            scene = self.preview_frame.get_scene(canvas.id)
+            items_by_id = {}
+            if scene:
+                for obj, item in scene._object_items.items():
+                    items_by_id[obj.id] = item
+ 
+            return list(objects), items_by_id
+ 
+        self._debug_window = DebugWindow(get_scene_data, parent=self)
+        self._debug_window.show()
+    def open_debug2(self):
+        self.debug_window.show()
     def _connect_signals(self):
         """Подключает сигналы между компонентами."""
+        from PySide6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence("F12"), self).activated.connect(self._open_debug)
+
         # Элементы панели
         self.elements_panel.canvas_selected.connect(self._on_canvas_selected)
         self.elements_panel.object_selected.connect(self._on_object_selected)
