@@ -2,42 +2,40 @@
 
 from PySide6.QtWidgets import QMenuBar, QMenu
 from PySide6.QtGui import QAction
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import Signal
 
 
-class AppMenuBar(QObject):
+class AppMenuBar(QMenuBar):
     """Класс верхнего меню приложения."""
 
-    # Сигналы
+    # сигналы
     settings_requested = Signal()
     exit_requested = Signal()
 
-    def __init__(self, parent):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._parent = parent
-        self._menubar: QMenuBar | None = None
-        self._settings_menu: QMenu | None = None
 
-    def create_menu_bar(self) -> QMenuBar:
-        """Создаёт и возвращает верхнее меню."""
-        self._menubar = self._parent.menuBar()
+        self._create_menu()
 
-        self._settings_menu = self._menubar.addMenu("Настройки")
+    def _create_menu(self):
+        """Создает структуру меню."""
 
-        settings_action = QAction("Настройки...", self._parent)
-        settings_action.triggered.connect(lambda: self.settings_requested.emit())
-        self._settings_menu.addAction(settings_action)
+        # --- меню настройки ---
+        settings_menu = self.addMenu("Настройки")
 
-        self._settings_menu.addSeparator()
+        settings_action = QAction("Настройки...", self)
+        settings_action.triggered.connect(self.settings_requested.emit)
+        settings_menu.addAction(settings_action)
 
-        exit_action = QAction("Выход", self._parent)
-        exit_action.triggered.connect(lambda: self.exit_requested.emit())
-        self._settings_menu.addAction(exit_action)
+        settings_menu.addSeparator()
 
-        return self._menubar
+        exit_action = QAction("Выход", self)
+        exit_action.triggered.connect(self.exit_requested.emit)
+        settings_menu.addAction(exit_action)
 
     def open_settings(self):
         """Открывает диалог настроек."""
         from .dialogs import SettingsDialog
-        dialog = SettingsDialog(self._parent)
+
+        dialog = SettingsDialog(self.parent())
         dialog.exec()

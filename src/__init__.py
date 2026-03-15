@@ -1,6 +1,5 @@
 """Редактор каллажей - приложение для создания композиций."""
 
-from .controllers import SceneController
 from .models import Canvas, BaseObject, TextObject, ImageObject, ShapeObject
 from .ui import MainWindow
 from .config import load_settings, save_settings

@@ -11,7 +11,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QPen, QIcon
 
-from ...models import BaseObject, Canvas, TextObject
+from ..models import BaseObject, Canvas, TextObject
 
 
 class TreeNode:
@@ -651,10 +651,11 @@ class CustomTreeView(QTreeView):
 
     def select_object(self, canvas_id: str, obj: BaseObject) -> None:
         """Выделяет объект в дереве."""
-        node = self._model._object_nodes.get(obj.id)
+        node = self._model._obj_nodes.get(obj.id)
         if node:
-            self.setCurrentIndex(self._model._index_for_node(node))
-            self.expandToIndex(self._model._index_for_node(node))
+            idx = self._model._index_for_node(node)
+            self.setCurrentIndex(idx)
+            self.scrollTo(idx)
 
     def get_canvas_id_for_object(self, obj: BaseObject) -> str | None:
         return self._model.get_canvas_id_for_obj(obj)
@@ -930,6 +931,31 @@ class ElementsPanel(QFrame):
         self.tree.canvas_context_menu.connect(self.canvas_context_menu.emit)
         self.tree.delete_requested.connect(self.delete_requested.emit)
 
+        self._is_dark_theme = False
+
+    def set_theme(self, is_dark: bool):
+        """Устанавливает тему оформления."""
+        self._is_dark_theme = is_dark
+        if is_dark:
+            self.setStyleSheet("""
+                QFrame {
+                    background-color: #2b2b2b;
+                    color: #ffffff;
+                }
+                QLabel { color: #ffffff; }
+                QPushButton {
+                    background-color: #3c3c3c;
+                    color: #ffffff;
+                    border: 1px solid #555;
+                    border-radius: 3px;
+                }
+                QPushButton:hover {
+                    background-color: #505050;
+                }
+            """)
+        else:
+            self.setStyleSheet("")
+
     def add_canvas(self, canvas: Canvas):
         self.tree._model.add_canvas(canvas)
 
@@ -951,6 +977,14 @@ class ElementsPanel(QFrame):
     def update_object_lock(self, canvas_id: str, obj: BaseObject):
         self.tree._model.update_object(canvas_id, obj)
 
+    def update_object(self, canvas_id: str, obj: BaseObject):
+        """Обновляет объект в дереве."""
+        self.tree._model.update_object(canvas_id, obj)
+    
+    def get_canvas_id_for_object(self, obj: BaseObject) -> str | None:
+            """Возвращает canvas_id для объекта."""
+            return self.tree.get_canvas_id_for_object(obj)
+    
     def select_object(self, canvas_id: str, obj: BaseObject):
         self.tree.select_object(canvas_id, obj)
 
