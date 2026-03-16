@@ -22,6 +22,13 @@ class TextObject(BaseObject):
     line_height: float = 1.2
     word_wrap: bool = True
 
+
+    # --- Обводка ---
+    stroke_enabled: bool = False
+    stroke_color: str = "#000000"
+    stroke_width: float = 1.0
+    stroke_style: str = "solid"       # solid | dash | dot | dash_dot
+    stroke_position: str = "center"   # center | outside | inside
     def __post_init__(self):
         pass
 
@@ -45,6 +52,13 @@ class TextObject(BaseObject):
             "text_align_v":   self.text_align_v,
             "line_height":    self.line_height,
             "word_wrap":      self.word_wrap,
+        }
+        props["Обводка"] = {
+            "stroke_enabled":  self.stroke_enabled,
+            "stroke_color":    self.stroke_color,
+            "stroke_width":    self.stroke_width,
+            "stroke_style":    self.stroke_style,
+            "stroke_position": self.stroke_position,
         }
         return props
 

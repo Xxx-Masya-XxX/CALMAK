@@ -27,4 +27,14 @@ class ShapeGraphicsItem(BaseGraphicsItem):
         painter.setBrush(QBrush(color))
         pen = QPen(Qt.GlobalColor.black, 1)
         painter.setPen(pen)
-        painter.drawRect(rect)
+        if self.obj.shape_type == 'triangle':
+            painter.drawPolygon([
+                QPointF(rect.center().x(), rect.top()),
+                QPointF(rect.left(), rect.bottom()),
+                QPointF(rect.right(), rect.bottom())
+            ])
+        elif self.obj.shape_type == 'ellipse':
+            painter.drawEllipse(rect)
+        else:
+            # Если тип фигуры неизвестен, рисуем прямоугольник по умолчанию
+            painter.drawRect(rect)

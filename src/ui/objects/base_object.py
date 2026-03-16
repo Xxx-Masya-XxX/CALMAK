@@ -115,7 +115,7 @@ class BaseGraphicsItem(QGraphicsItem):
         """Рисует рамку выделения."""
         painter.save()
         pen = QPen(QColor(SELECTION_COLOR), 1.5, Qt.PenStyle.DashLine)
-        pen.setCosmetic(True)  # толщина не масштабируется при зуме
+        pen.setCosmetic(False)  # толщина не масштабируется при зуме
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(rect)

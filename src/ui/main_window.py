@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
     def _add_object(self, canvas_id: str, obj: BaseObject):
         self.elements_panel.add_object(canvas_id, obj)
         self.preview_frame.add_object(canvas_id, obj)
-        self.elements_panel.select_object(obj)
+        self.elements_panel.select_object(canvas_id, obj)
         self.preview_frame.select_object(canvas_id, obj)
 
     # ------------------------------------------------------------------
