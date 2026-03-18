@@ -17,9 +17,9 @@ class ShapeGraphicsItem(BaseGraphicsItem):
         )
         self.setAcceptHoverEvents(True)
 
-    def boundingRect(self) -> QRectF:
-        """Возвращает границы фигуры для рендеринга и взаимодействия."""
-        return QRectF(0, 0, self.obj.width, self.obj.height)
+    # def boundingRect(self) -> QRectF:
+    #     """Возвращает границы фигуры для рендеринга и взаимодействия."""
+    #     return QRectF(0, 0, self.obj.width, self.obj.height)
 
     def _paint_content(self, painter: QPainter, rect: QRectF):
         """Рисует фигуру на сцене."""

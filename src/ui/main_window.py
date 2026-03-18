@@ -98,6 +98,9 @@ class MainWindow(QMainWindow):
         self.elements_panel.canvas_selected.connect(self._on_canvas_selected)
         self.elements_panel.object_selected.connect(self._on_obj_selected)
         self.elements_panel.delete_requested.connect(self._delete_item)
+        self.elements_panel.object_parent_changed.connect(self._object_parent_changed)
+        # self.elements_panel..connect(self.)
+        # self.elements_panel..connect(self.)
 
         self.preview_frame.object_selected.connect(self._on_obj_selected)
         self.preview_frame.object_moved.connect(self._on_obj_moved)
@@ -196,6 +199,8 @@ class MainWindow(QMainWindow):
     # Обработчики событий
     # ------------------------------------------------------------------
 
+    def _object_parent_changed(self, obj: BaseObject):
+        pass
     def _on_obj_selected(self, obj: BaseObject):
         self.properties_panel.set_object(obj)
 

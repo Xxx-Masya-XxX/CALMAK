@@ -549,11 +549,11 @@ class CustomTreeView(QTreeView):
 
     canvas_selected = Signal(str)
     object_selected = Signal(BaseObject)
+    delete_requested = Signal(object)  # Сигнал для удаления выделенного элемента (Canvas или BaseObject)
     object_parent_changed = Signal(BaseObject)
     order_changed = Signal(str)
     add_child_requested = Signal(BaseObject, str)
     canvas_context_menu = Signal(Canvas)
-    delete_requested = Signal(object)  # Сигнал для удаления выделенного элемента (Canvas или BaseObject)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -894,7 +894,7 @@ class ElementsPanel(QFrame):
     order_changed = Signal(str)
     add_child_requested = Signal(BaseObject, str)
     canvas_context_menu = Signal(Canvas)
-    delete_requested = Signal(object)  # Сигнал для удаления элемента (Canvas или BaseObject)
+    delete_requested = Signal(object)
 
     def __init__(self, main_window=None):
         super().__init__()
