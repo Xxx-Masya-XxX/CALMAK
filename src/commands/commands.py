@@ -429,3 +429,52 @@ class ReorderObjectCommand(Command):
         lst = self._get_list(canvas)
         lst[:] = self._old_list
         canvas.recalc_z_indices()
+
+
+class TreeRearrangeCommand(Command):
+    """
+    Сохраняет полный снимок иерархии канваса (root_ids, parent_id,
+    children_ids, z_index для каждого объекта) и восстанавливает его при undo.
+    Используется после drag/drop в дереве элементов.
+    """
+    description = "Rearrange layers"
+
+    def __init__(self, canvas_id: str, snapshot_before: dict, snapshot_after: dict):
+        self.canvas_id       = canvas_id
+        self._before         = snapshot_before   # {root_ids, objects: {id: {...}}}
+        self._after          = snapshot_after
+
+    @staticmethod
+    def take_snapshot(canvas) -> dict:
+        """Снимок иерархии канваса."""
+        return {
+            "root_ids": list(canvas.root_ids),
+            "objects": {
+                oid: {
+                    "parent_id":    obj.parent_id,
+                    "children_ids": list(obj.children_ids),
+                    "z_index":      obj.z_index,
+                }
+                for oid, obj in canvas.objects.items()
+            }
+        }
+
+    @staticmethod
+    def apply_snapshot(canvas, snap: dict):
+        canvas.root_ids = list(snap["root_ids"])
+        for oid, s in snap["objects"].items():
+            obj = canvas.objects.get(oid)
+            if obj:
+                obj.parent_id    = s["parent_id"]
+                obj.children_ids = list(s["children_ids"])
+                obj.z_index      = s["z_index"]
+
+    def execute(self, doc: "DocumentState"):
+        canvas = doc.canvases.get(self.canvas_id)
+        if canvas:
+            self.apply_snapshot(canvas, self._after)
+
+    def undo(self, doc: "DocumentState"):
+        canvas = doc.canvases.get(self.canvas_id)
+        if canvas:
+            self.apply_snapshot(canvas, self._before)

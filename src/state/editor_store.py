@@ -56,6 +56,8 @@ class EditorStore(QObject):
     _STRUCTURAL_COMMANDS = (
         "AddObjectCommand", "DeleteObjectCommand",
         "DuplicateObjectCommand", "ReparentObjectCommand",
+        "ReorderObjectCommand",    # bring/send → rebuilds tree order
+        "TreeRearrangeCommand",    # drag/drop in tree
     )
 
     def _push_command(self, cmd):

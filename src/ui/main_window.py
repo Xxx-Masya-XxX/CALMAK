@@ -704,6 +704,8 @@ class MainWindow(QMainWindow):
         sb.addPermanentWidget(self._sel_lbl)
         self._tool_lbl = QLabel("  Tool: Move")
         sb.addPermanentWidget(self._tool_lbl)
+        self._zoom_lbl = QLabel("  100%")
+        sb.addPermanentWidget(self._zoom_lbl)
 
     # ---- Store connections -------------------------------------------------
 
@@ -715,6 +717,12 @@ class MainWindow(QMainWindow):
         self._store.title_changed.connect(self.setWindowTitle)
         self._store.canvas_switched.connect(
             lambda _: self._refresh_canvas_combo())
+        # Update zoom label when view transforms
+        # We use a timer to poll (QGraphicsView has no zoom signal)
+        from PySide6.QtCore import QTimer
+        self._zoom_timer = QTimer(self)
+        self._zoom_timer.timeout.connect(self._update_zoom_label)
+        self._zoom_timer.start(200)  # poll every 200ms
 
     def _on_doc_changed(self):
         self._refresh_canvas_combo()
@@ -734,6 +742,11 @@ class MainWindow(QMainWindow):
             act.setChecked(tid == tool_id)
         names = {TOOL_MOVE: "Move", TOOL_ROTATE: "Rotate", TOOL_SCALE: "Scale"}
         self._tool_lbl.setText(f"  Tool: {names.get(tool_id, tool_id)}")
+
+    def _update_zoom_label(self):
+        if hasattr(self, "_scene_view") and hasattr(self, "_zoom_lbl"):
+            pct = self._scene_view.current_zoom_percent()
+            self._zoom_lbl.setText(f"  {pct}%")
 
     def _update_status(self):
         canvas = self._store.active_canvas
