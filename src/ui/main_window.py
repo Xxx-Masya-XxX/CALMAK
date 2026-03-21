@@ -34,170 +34,8 @@ from ui.scene.scene_view import SceneView
 from ui.panels.element_tree_panel import ElementTreePanel
 from ui.panels.properties_panel import PropertiesPanel
 from ui.constants import C, menu_stylesheet
+from ui.theme import THEMES, build_stylesheet, theme_manager
 
-
-# ---------------------------------------------------------------------------
-# Themes
-# ---------------------------------------------------------------------------
-
-THEMES: dict[str, dict] = {
-    "Dark": {
-        "bg":        "#1A1A2A",
-        "surface":   "#252535",
-        "surface2":  "#2A2A3E",
-        "border":    "#3A3A4A",
-        "accent":    "#4A90E2",
-        "accent2":   "#3A5A9A",
-        "text":      "#CCCCDD",
-        "text_dim":  "#888899",
-        "scene_bg":  "#2D2D3A",
-    },
-    "Light": {
-        "bg":        "#F0F0F5",
-        "surface":   "#FFFFFF",
-        "surface2":  "#E8E8F0",
-        "border":    "#C8C8D8",
-        "accent":    "#2060C0",
-        "accent2":   "#1040A0",
-        "text":      "#111122",
-        "text_dim":  "#666677",
-        "scene_bg":  "#D8D8E8",
-    },
-    "Midnight": {
-        "bg":        "#0D0D1A",
-        "surface":   "#13131F",
-        "surface2":  "#1A1A2A",
-        "border":    "#2A2A3A",
-        "accent":    "#7A4AE2",
-        "accent2":   "#5A2AC2",
-        "text":      "#DDDDFF",
-        "text_dim":  "#7777AA",
-        "scene_bg":  "#181828",
-    },
-    "Warm": {
-        "bg":        "#1F1A14",
-        "surface":   "#2A231A",
-        "surface2":  "#352B20",
-        "border":    "#4A3F30",
-        "accent":    "#E2904A",
-        "accent2":   "#C27030",
-        "text":      "#EEE0CC",
-        "text_dim":  "#998877",
-        "scene_bg":  "#252018",
-    },
-}
-
-_current_theme: str = "Dark"
-
-
-def build_stylesheet(theme_name: str) -> str:
-    t = THEMES.get(theme_name, THEMES["Dark"])
-    return f"""
-    QMainWindow, QWidget {{ background: {t['bg']}; color: {t['text']}; }}
-    QMenuBar {{
-        background: {t['surface']}; color: {t['text']};
-        border-bottom: 1px solid {t['border']}; padding: 2px; font-size: 12px;
-    }}
-    QMenuBar::item:selected {{ background: {t['accent2']}; border-radius: 3px; }}
-    QMenu {{
-        background: {t['surface']}; color: {t['text']};
-        border: 1px solid {t['border']}; font-size: 12px;
-    }}
-    QMenu::item:selected {{ background: {t['accent2']}; }}
-    QMenu::separator {{ height: 1px; background: {t['border']}; margin: 2px 8px; }}
-    QToolBar {{
-        background: {t['surface']}; border: 1px solid {t['border']};
-        spacing: 2px; padding: 2px 4px;
-    }}
-    QToolBar::handle {{
-        background: {t['border']}; width: 6px; border-radius: 2px; margin: 2px;
-    }}
-    QDockWidget {{
-        color: {t['text']};
-        titlebar-close-icon: none;
-        titlebar-normal-icon: none;
-    }}
-    QDockWidget::title {{
-        background: {t['surface']}; padding: 4px 8px;
-        font-size: 11px; color: {t['text_dim']};
-        border-bottom: 1px solid {t['border']};
-    }}
-    QStatusBar {{
-        background: {t['surface']}; color: {t['text_dim']};
-        border-top: 1px solid {t['border']}; font-size: 11px;
-    }}
-    QSplitter::handle {{ background: {t['border']}; }}
-    QScrollBar:vertical {{
-        background: {t['bg']}; width: 8px; border: none;
-    }}
-    QScrollBar::handle:vertical {{
-        background: {t['border']}; border-radius: 4px; min-height: 20px;
-    }}
-    QPushButton {{
-        background: {t['surface2']}; color: {t['text']};
-        border: 1px solid {t['border']}; border-radius: 4px;
-        padding: 4px 10px; font-size: 11px;
-    }}
-    QPushButton:hover {{ background: {t['accent2']}; border-color: {t['accent']}; }}
-    QPushButton:pressed {{ background: {t['accent']}; }}
-    QPushButton:checked {{
-        background: {t['accent2']}; border: 1px solid {t['accent']};
-    }}
-    QPushButton:flat {{
-        background: transparent; border: none;
-    }}
-    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit {{
-        background: {t['surface2']}; color: {t['text']};
-        border: 1px solid {t['border']}; border-radius: 3px;
-        padding: 3px 6px; font-size: 11px;
-    }}
-    QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
-    QComboBox:focus, QTextEdit:focus {{
-        border-color: {t['accent']};
-    }}
-    QComboBox QAbstractItemView {{
-        background: {t['surface']}; color: {t['text']};
-        border: 1px solid {t['border']};
-    }}
-    QTableWidget {{
-        background: {t['surface2']}; color: {t['text']};
-        border: 1px solid {t['border']}; gridline-color: {t['border']};
-        font-size: 11px;
-    }}
-    QTableWidget::item:selected {{ background: {t['accent2']}; }}
-    QHeaderView::section {{
-        background: {t['surface']}; color: {t['text_dim']};
-        border: 1px solid {t['border']}; padding: 4px; font-size: 10px;
-    }}
-    QTabWidget::pane {{
-        border: 1px solid {t['border']}; background: {t['bg']};
-    }}
-    QTabBar::tab {{
-        background: {t['surface']}; color: {t['text_dim']};
-        padding: 5px 14px; border: none; font-size: 11px;
-    }}
-    QTabBar::tab:selected {{
-        background: {t['bg']}; color: {t['text']};
-        border-bottom: 2px solid {t['accent']};
-    }}
-    QGroupBox {{
-        color: {t['text_dim']}; border: 1px solid {t['border']};
-        border-radius: 4px; margin-top: 10px; font-size: 11px;
-        padding: 8px;
-    }}
-    QGroupBox::title {{
-        subcontrol-origin: margin; left: 8px; padding: 0 4px;
-    }}
-    QCheckBox {{ color: {t['text']}; font-size: 11px; }}
-    QCheckBox::indicator {{
-        width: 14px; height: 14px;
-        border: 1px solid {t['border']}; border-radius: 3px;
-        background: {t['surface2']};
-    }}
-    QCheckBox::indicator:checked {{
-        background: {t['accent']}; border-color: {t['accent']};
-    }}
-    """
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +184,8 @@ class SettingsDialog(QDialog):
 
     def _on_theme_preview(self, theme_name: str):
         self._chosen_theme = theme_name
-        # Live preview — обновляем стиль приложения немедленно
-        QApplication.instance().setStyleSheet(build_stylesheet(theme_name))
+        # Live preview через theme_manager — обновляет всё включая SceneView
+        theme_manager.apply(theme_name)
 
     def _clear_all_hotkeys(self):
         for edit in self._key_edits.values():
@@ -390,17 +228,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        global _current_theme
-        _current_theme = saved_theme
-
         self.setWindowTitle("Canvas Editor")
         self.resize(1480, 920)
 
-        # Apply theme before building UI — обновляем C и stylesheet
-        t = THEMES.get(_current_theme, THEMES["Dark"])
-        C.set_theme(t)
-        QApplication.instance().setStyleSheet(
-            build_stylesheet(_current_theme))
+        # Apply saved theme — обновляет C, QApplication stylesheet и все подписчики
+        theme_manager.apply(saved_theme)
 
         self._build_ui()
         self._apply_hotkeys()
@@ -788,29 +620,21 @@ class MainWindow(QMainWindow):
     # ---- Settings ----------------------------------------------------------
 
     def _open_settings(self):
-        global _current_theme
-        dlg = SettingsDialog(_current_theme, self._hotkeys, self)
-        prev_theme = _current_theme
+        dlg = SettingsDialog(theme_manager.name, self._hotkeys, self)
+        prev_theme = theme_manager.name
 
         if dlg.exec():
-            _current_theme = dlg.get_theme()
-            self._hotkeys  = dlg.get_hotkeys()
-            self._apply_theme(_current_theme)
+            self._hotkeys = dlg.get_hotkeys()
+            self._apply_theme(dlg.get_theme())
             self._apply_hotkeys()
             self._save_settings()
         else:
             # Restore previous theme if user cancelled
-            if prev_theme != _current_theme:
-                _current_theme = prev_theme
-                QApplication.instance().setStyleSheet(
-                    build_stylesheet(_current_theme))
+            if prev_theme != theme_manager.name:
+                theme_manager.apply(prev_theme)
 
     def _apply_theme(self, theme_name: str):
-        global _current_theme
-        _current_theme = theme_name
-        t = THEMES.get(theme_name, THEMES["Dark"])
-        C.set_theme(t)   # обновляем QColor-константы
-        QApplication.instance().setStyleSheet(build_stylesheet(theme_name))
+        theme_manager.apply(theme_name)
 
     def _apply_hotkeys(self):
         """Назначает горячие клавиши из self._hotkeys всем действиям."""
@@ -853,8 +677,7 @@ class MainWindow(QMainWindow):
             action.setToolTip(f"{name}  ({seq_str})" if seq_str else name)
 
     def _save_settings(self):
-        global _current_theme
-        self._settings.setValue("theme", _current_theme)
+        self._settings.setValue("theme", theme_manager.name)
         self._settings.setValue("hotkeys", json.dumps(self._hotkeys))
 
     # ---- Window close — save geometry + settings ---------------------------

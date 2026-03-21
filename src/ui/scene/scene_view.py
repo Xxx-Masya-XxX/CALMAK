@@ -27,6 +27,7 @@ from domain.models import ObjectType
 from rendering.scene_renderer import SceneRenderer, SceneItemRegistry
 from tools.tool_manager import ToolManager, ToolContext
 from ui.constants import C, menu_stylesheet
+from ui.theme import theme_manager
 
 if TYPE_CHECKING:
     from state.editor_store import EditorStore
@@ -93,6 +94,9 @@ class SceneView(QGraphicsView):
         store.document_changed.connect(self._on_document_changed)
         store.selection_changed.connect(self._on_selection_changed)
         store.canvas_switched.connect(self._on_canvas_switched)
+
+        # Theme signal
+        theme_manager.theme_changed.connect(self._on_theme_changed)
 
         # Первый рендер и центрирование
         self._renderer.full_sync()
@@ -226,6 +230,12 @@ class SceneView(QGraphicsView):
     # -----------------------------------------------------------------------
     # Store slots
     # -----------------------------------------------------------------------
+
+    def _on_theme_changed(self, name: str, t: dict):
+        """Обновляет фон сцены при смене темы."""
+        from PySide6.QtGui import QColor, QBrush
+        self.setBackgroundBrush(QBrush(QColor(t.get("scene_bg", "#2D2D3A"))))
+        self._scene.update()
 
     def _on_document_changed(self):
         self._renderer.full_sync()

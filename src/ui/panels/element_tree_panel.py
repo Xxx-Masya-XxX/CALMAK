@@ -131,6 +131,10 @@ class LayerTreeWidget(QWidget):
         self.setMinimumWidth(200)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
+        # Repaint when theme changes (custom QPainter uses C.* colors)
+        from ui.theme import theme_manager
+        theme_manager.theme_changed.connect(lambda *_: self.update())
+
     # -----------------------------------------------------------------------
     # Build flat node list from DocumentState
     # -----------------------------------------------------------------------
@@ -667,12 +671,11 @@ class ElementTreePanel(QWidget):
 
         # Header
         header = QFrame()
-        header.setStyleSheet(
-            "background:#252535;border-bottom:1px solid #3A3A4A;")
+        header.setStyleSheet("border-bottom:1px solid palette(mid);")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(8, 6, 8, 6)
         lbl = QLabel("Layers")
-        lbl.setStyleSheet("color:#CCCCDD;font-weight:bold;font-size:12px;")
+        lbl.setStyleSheet("font-weight:bold;font-size:12px;")
         hl.addWidget(lbl)
         hl.addStretch()
         layout.addWidget(header)
@@ -682,13 +685,7 @@ class ElementTreePanel(QWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self._scroll.setStyleSheet(
-            "QScrollArea{border:none;background:#1E1E2E;}"
-            "QScrollBar:vertical{background:#1E1E2E;width:8px;border:none;}"
-            "QScrollBar::handle:vertical{background:#3A3A5A;"
-            "border-radius:4px;min-height:20px;}"
-            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{"
-            "height:0px;}")
+        self._scroll.setStyleSheet("QScrollArea{border:none;}")
 
         self._tree = LayerTreeWidget(self._store, self._controller)
         self._tree.selection_changed.connect(self._on_tree_selection)

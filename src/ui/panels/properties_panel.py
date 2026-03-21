@@ -41,37 +41,16 @@ class PropRow(QWidget):
         lay.setSpacing(8)
         lbl = QLabel(label)
         lbl.setFixedWidth(72)
-        lbl.setStyleSheet("color:#888899;font-size:11px;")
+        lbl.setStyleSheet("font-size:11px;")
         lay.addWidget(lbl)
         lay.addWidget(widget, 1)
 
 
-_SPIN_SS = """
-QDoubleSpinBox,QSpinBox {
-    background:#2A2A3E; color:#CCCCDD;
-    border:1px solid #3A3A5A; border-radius:3px;
-    padding:2px 4px; font-size:11px;
-}
-QDoubleSpinBox:focus,QSpinBox:focus { border-color:#4A90E2; }
-"""
-_LINE_SS = """
-QLineEdit {
-    background:#2A2A3E; color:#CCCCDD;
-    border:1px solid #3A3A5A; border-radius:3px;
-    padding:3px 6px; font-size:11px;
-}
-QLineEdit:focus { border-color:#4A90E2; }
-"""
-_BTN_SS = """
-QPushButton {
-    background:#3A4A6A; color:#CCCCDD;
-    border:none; border-radius:4px;
-    padding:5px 12px; font-size:11px;
-}
-QPushButton:hover { background:#4A5A7A; }
-QPushButton:pressed { background:#2A3A5A; }
-"""
-_CHECK_SS = "color:#CCCCDD;font-size:11px;"
+# Minimal structural styles — colors come from QApplication theme stylesheet
+_SPIN_SS = "font-size:11px;"
+_LINE_SS = "font-size:11px;"
+_BTN_SS  = "font-size:11px;"
+_CHECK_SS = "font-size:11px;"
 
 
 def _spin(mn=-9999, mx=9999, dec=1, step=1.0) -> QDoubleSpinBox:
@@ -164,7 +143,7 @@ class PropertiesPanel(QWidget):
     def _setup_ui(self):
         self.setMinimumWidth(250)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        self.setStyleSheet("background:#1A1A2A;color:#CCCCDD;")
+        pass  # colors from QApplication theme stylesheet
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -172,11 +151,11 @@ class PropertiesPanel(QWidget):
 
         # Header
         hdr = QFrame()
-        hdr.setStyleSheet("background:#252535;border-bottom:1px solid #3A3A4A;")
+        hdr.setStyleSheet("border-bottom:1px solid palette(mid);")
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(8, 6, 8, 6)
         t = QLabel("Properties")
-        t.setStyleSheet("color:#CCCCDD;font-weight:bold;font-size:12px;")
+        t.setStyleSheet("font-weight:bold;font-size:12px;")
         hl.addWidget(t)
         outer.addWidget(hdr)
 
@@ -196,10 +175,10 @@ class PropertiesPanel(QWidget):
 
         # --- Object tab ---
         obj_widget = QWidget()
-        obj_widget.setStyleSheet("background:#1A1A2A;")
+        
         obj_scroll = QScrollArea()
         obj_scroll.setWidgetResizable(True)
-        obj_scroll.setStyleSheet("QScrollArea{border:none;background:#1A1A2A;}")
+        obj_scroll.setStyleSheet("QScrollArea{border:none;}")
         obj_scroll.setWidget(obj_widget)
         self._obj_layout = QVBoxLayout(obj_widget)
         self._obj_layout.setContentsMargins(0, 4, 0, 8)
@@ -208,10 +187,10 @@ class PropertiesPanel(QWidget):
 
         # --- Canvas tab ---
         canvas_widget = QWidget()
-        canvas_widget.setStyleSheet("background:#1A1A2A;")
+        
         canvas_scroll = QScrollArea()
         canvas_scroll.setWidgetResizable(True)
-        canvas_scroll.setStyleSheet("QScrollArea{border:none;background:#1A1A2A;}")
+        canvas_scroll.setStyleSheet("QScrollArea{border:none;}")
         canvas_scroll.setWidget(canvas_widget)
         self._canvas_layout = QVBoxLayout(canvas_widget)
         self._canvas_layout.setContentsMargins(0, 4, 0, 8)
@@ -446,7 +425,7 @@ class PropertiesPanel(QWidget):
     def _show_empty(self):
         self._clear_obj_layout()
         lbl = QLabel("No selection")
-        lbl.setStyleSheet("color:#555566;font-size:12px;padding:20px;")
+        lbl.setStyleSheet("font-size:12px;padding:20px;")
         lbl.setAlignment(Qt.AlignCenter)
         self._obj_layout.addWidget(lbl)
         self._obj_layout.addStretch()
@@ -504,14 +483,14 @@ class PropertiesPanel(QWidget):
         rl.setSpacing(16)
 
         vis = QCheckBox("Visible")
-        vis.setStyleSheet(_CHECK_SS)
+        
         vis.setChecked(obj.visible)
         # Используем checkStateChanged — передаёт Qt.CheckState
         vis.checkStateChanged.connect(
             lambda state: self._commit("visible", state == Qt.Checked))
 
         lock = QCheckBox("Locked")
-        lock.setStyleSheet(_CHECK_SS)
+        
         lock.setChecked(obj.locked)
         lock.checkStateChanged.connect(
             lambda state: self._commit("locked", state == Qt.Checked))
@@ -584,12 +563,7 @@ class PropertiesPanel(QWidget):
         te = QTextEdit()
         te.setPlainText(payload.text)
         te.setFixedHeight(80)
-        te.setStyleSheet("""
-            QTextEdit{background:#2A2A3E;color:#CCCCDD;
-                border:1px solid #3A3A5A;border-radius:3px;
-                font-size:11px;padding:4px;}
-            QTextEdit:focus{border-color:#4A90E2;}
-        """)
+        te.setStyleSheet("font-size:11px;padding:4px;")
         te.textChanged.connect(
             lambda: self._commit("payload_text", te.toPlainText()))
         w = QWidget()
@@ -622,13 +596,13 @@ class PropertiesPanel(QWidget):
         rl.setSpacing(16)
 
         bold = QCheckBox("Bold")
-        bold.setStyleSheet(_CHECK_SS)
+        
         bold.setChecked(s.bold)
         bold.checkStateChanged.connect(
             lambda state: self._commit("style.bold", state == Qt.Checked))
 
         italic = QCheckBox("Italic")
-        italic.setStyleSheet(_CHECK_SS)
+        
         italic.setChecked(s.italic)
         italic.checkStateChanged.connect(
             lambda state: self._commit("style.italic", state == Qt.Checked))
