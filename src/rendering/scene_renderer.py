@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QGraphicsScene, QGraphicsItem,
 
 from domain.models import (ObjectState, ObjectType, CanvasState,
                             TextPayload, ImagePayload, StyleState)
+from ui.constants import C
 
 if TYPE_CHECKING:
     from state.editor_store import EditorStore
@@ -115,9 +116,9 @@ def _apply_style_image(item: QGraphicsPixmapItem, obj: ObjectState):
             return
     # placeholder
     pix = QPixmap(int(t.width), int(t.height))
-    pix.fill(QColor("#CCCCCC"))
+    pix.fill(C.PLACEHOLDER_FILL)
     painter = QPainter(pix)
-    painter.setPen(QPen(QColor("#888888"), 2))
+    painter.setPen(QPen(C.PLACEHOLDER_STROKE, 2))
     painter.drawLine(0, 0, int(t.width), int(t.height))
     painter.drawLine(int(t.width), 0, 0, int(t.height))
     painter.drawRect(1, 1, int(t.width) - 2, int(t.height) - 2)
@@ -136,7 +137,7 @@ class CanvasBackgroundItem(QGraphicsRectItem):
         self.setFlag(QGraphicsItem.ItemIsSelectable, False)
         self.setFlag(QGraphicsItem.ItemIsMovable, False)
         self._canvas = canvas
-        self.setPen(QPen(QColor("#AAAAAA"), 1))
+        self.setPen(QPen(C.CANVAS_BORDER, 1))
         # Устанавливаем цвет сразу при создании
         self.setBrush(QBrush(QColor(canvas.background)))
 
@@ -250,7 +251,7 @@ class SceneRenderer:
             t = obj.transform
             item.setRect(0, 0, max(t.width, 1), max(t.height, 1))
             item.setBrush(QBrush(Qt.transparent))
-            item.setPen(QPen(QColor("#888888"), 1, Qt.DashLine))
+            item.setPen(QPen(C.PLACEHOLDER_STROKE, 1, Qt.DashLine))
             _apply_transform(item, obj)
             return item
 

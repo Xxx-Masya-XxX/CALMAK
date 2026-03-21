@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from domain.models import ObjectType, ObjectState, CanvasState
+from ui.constants import C, ICONS, OBJECT_COLORS, LAYER, menu_stylesheet
 
 if TYPE_CHECKING:
     from state.editor_store import EditorStore
@@ -31,39 +32,14 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Constants
+# Local aliases from ui.constants (for readability)
 # ---------------------------------------------------------------------------
 
-ITEM_H       = 28      # высота строки
-INDENT       = 20      # отступ на уровень вложенности
-ICON_W       = 22      # ширина иконки
-TOGGLE_W     = 14      # ширина треугольника expand/collapse
-PAD_LEFT     = 4       # левый отступ строки
-
-TYPE_ICONS = {
-    ObjectType.RECT:    "▭",
-    ObjectType.ELLIPSE: "◯",
-    ObjectType.TEXT:    "T",
-    ObjectType.IMAGE:   "🖼",
-    ObjectType.GROUP:   "📁",
-}
-TYPE_COLORS = {
-    ObjectType.RECT:    QColor("#4A90E2"),
-    ObjectType.ELLIPSE: QColor("#E2604A"),
-    ObjectType.TEXT:    QColor("#4AE27A"),
-    ObjectType.IMAGE:   QColor("#E2A84A"),
-    ObjectType.GROUP:   QColor("#A84AE2"),
-}
-CANVAS_COLOR   = QColor("#FFFFFF")
-CANVAS_ACTIVE  = QColor("#FFFFFF")
-COLOR_SEL_BG   = QColor("#3A4A6A")
-COLOR_SEL_FG   = QColor("#FFFFFF")
-COLOR_HOVER    = QColor(255, 255, 255, 18)
-COLOR_DROP_LINE = QColor("#4A9EFF")
-COLOR_DROP_RECT = QColor("#4A9EFF")
-COLOR_DIM       = QColor("#555566")
-COLOR_BG        = QColor("#1E1E2E")
-COLOR_TEXT      = QColor("#CCCCDD")
+ITEM_H    = LAYER.ITEM_H
+INDENT    = LAYER.INDENT
+ICON_W    = LAYER.ICON_W
+TOGGLE_W  = LAYER.TOGGLE_W
+PAD_LEFT  = LAYER.PAD_LEFT
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +207,7 @@ class LayerTreeWidget(QWidget):
     def paintEvent(self, event: QPaintEvent):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(), COLOR_BG)
+        p.fillRect(self.rect(), C.TREE_BG)
 
         doc = self._store.document
         font = QFont("Segoe UI", 10)
@@ -248,9 +224,9 @@ class LayerTreeWidget(QWidget):
             is_hover = i == self._hover_idx and not is_sel
 
             if is_sel:
-                p.fillRect(rect, COLOR_SEL_BG)
+                p.fillRect(rect, C.SEL_BG)
             elif is_hover:
-                p.fillRect(rect, COLOR_HOVER)
+                p.fillRect(rect, C.HOVER)
 
             x = PAD_LEFT + node.depth * INDENT
 
@@ -265,7 +241,7 @@ class LayerTreeWidget(QWidget):
                 tx = x
                 has_children = bool(canvas.root_ids)
                 if has_children:
-                    p.setPen(QPen(QColor("#888899")))
+                    p.setPen(QPen(C.TEXT_DIM))
                     arrow = "▼" if node.expanded else "▶"
                     p.setFont(QFont("Segoe UI", 7))
                     p.drawText(QRect(tx, y, TOGGLE_W, ITEM_H),
@@ -274,14 +250,14 @@ class LayerTreeWidget(QWidget):
                 # Icon + name
                 ix = tx + TOGGLE_W + 2
                 p.setFont(QFont("Segoe UI", 10))
-                p.setPen(QPen(QColor("#888888")))
+                p.setPen(QPen(C.TEXT_DIM))
                 p.drawText(QRect(ix, y, ICON_W, ITEM_H),
                            Qt.AlignVCenter | Qt.AlignLeft, "🎨")
 
                 p.setFont(font_bold if active else font)
-                color = CANVAS_ACTIVE if active else QColor("#AAAACC")
+                color = C.TEXT_CANVAS if active else C.TEXT_CANVAS_DIM
                 if is_sel:
-                    color = COLOR_SEL_FG
+                    color = C.SEL_FG
                 p.setPen(QPen(color))
                 name = (canvas.name or "Canvas") + ("  ●" if active else "")
                 nx = ix + ICON_W + 2
@@ -291,7 +267,7 @@ class LayerTreeWidget(QWidget):
                                          self.width() - nx - 8))
 
                 # Bottom separator
-                p.setPen(QPen(QColor("#2A2A3A")))
+                p.setPen(QPen(C.TREE_ROW_SEP))
                 p.drawLine(0, y + ITEM_H - 1, self.width(), y + ITEM_H - 1)
 
             else:
@@ -306,7 +282,7 @@ class LayerTreeWidget(QWidget):
                 # Toggle (only if has children)
                 tx = x
                 if obj.children_ids:
-                    p.setPen(QPen(QColor("#888899")))
+                    p.setPen(QPen(C.TEXT_DIM))
                     arrow = "▼" if node.expanded else "▶"
                     p.setFont(QFont("Segoe UI", 7))
                     p.drawText(QRect(tx, y, TOGGLE_W, ITEM_H),
@@ -314,10 +290,10 @@ class LayerTreeWidget(QWidget):
 
                 # Type icon
                 ix = tx + TOGGLE_W + 2
-                icon  = TYPE_ICONS.get(obj.type, "?")
-                icolor = TYPE_COLORS.get(obj.type, QColor("#CCCCCC"))
+                icon  = ICONS.get(obj.type)
+                icolor = OBJECT_COLORS.get(obj.type)
                 if obj.locked:
-                    icolor = COLOR_DIM
+                    icolor = C.TEXT_MUTED
                 p.setFont(QFont("Segoe UI", 10))
                 p.setPen(QPen(icolor))
                 p.drawText(QRect(ix, y, ICON_W, ITEM_H),
@@ -326,9 +302,9 @@ class LayerTreeWidget(QWidget):
                 # Name
                 nx = ix + ICON_W + 2
                 p.setFont(font)
-                name_color = (COLOR_SEL_FG if is_sel
-                              else COLOR_DIM if obj.locked
-                              else COLOR_TEXT)
+                name_color = (C.SEL_FG if is_sel
+                              else C.TEXT_MUTED if obj.locked
+                              else C.TEXT)
                 p.setPen(QPen(name_color))
 
                 name = obj.name
@@ -346,8 +322,8 @@ class LayerTreeWidget(QWidget):
         if dt.is_valid():
             if dt.mode in (DropTarget.BEFORE, DropTarget.AFTER):
                 # Синяя горизонтальная линия
-                p.setPen(QPen(COLOR_DROP_LINE, 2))
-                p.setBrush(QBrush(COLOR_DROP_LINE))
+                p.setPen(QPen(C.DROP_LINE, 2))
+                p.setBrush(QBrush(C.DROP_LINE))
                 p.drawLine(4, dt.y_line, self.width() - 4, dt.y_line)
                 # Кружок слева
                 p.drawEllipse(QPoint(6, dt.y_line), 4, 4)
@@ -356,7 +332,7 @@ class LayerTreeWidget(QWidget):
                 idx = self._idx_of(dt.node)
                 if idx >= 0:
                     ry = idx * ITEM_H + 1
-                    p.setPen(QPen(COLOR_DROP_RECT, 2))
+                    p.setPen(QPen(C.DROP_RECT, 2))
                     p.setBrush(Qt.transparent)
                     p.drawRoundedRect(
                         QRect(2, ry, self.width() - 4, ITEM_H - 2), 3, 3)
@@ -768,15 +744,7 @@ class ElementTreePanel(QWidget):
         from PySide6.QtWidgets import QMenu
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background:#252535;color:#CCCCDD;
-                border:1px solid #3A3A5A;font-size:12px;padding:4px;
-            }
-            QMenu::item{padding:5px 20px 5px 12px;border-radius:3px;}
-            QMenu::item:selected{background:#3A4A6A;}
-            QMenu::separator{height:1px;background:#3A3A5A;margin:3px 6px;}
-        """)
+        menu.setStyleSheet(menu_stylesheet())
 
         if node and node.is_object:
             obj_id    = node.obj_id

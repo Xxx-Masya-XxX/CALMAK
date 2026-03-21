@@ -24,6 +24,7 @@ from PySide6.QtGui import (QColor, QPen, QBrush, QCursor, QPainter,
 from PySide6.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
                                 QGraphicsEllipseItem, QGraphicsLineItem,
                                 QRubberBand, QAbstractItemView)
+from ui.constants import C
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QRect
@@ -374,7 +375,7 @@ class RotateTool(BaseTool):
         self._clear_indicator(ctx)
         line = QGraphicsLineItem(
             self._center.x(), self._center.y(), pos.x(), pos.y())
-        line.setPen(QPen(QColor("#FF9900"), 1.5, Qt.DashLine))
+        line.setPen(QPen(C.ROTATE_INDICATOR, 1.5, Qt.DashLine))
         line.setZValue(9998)
         ctx.scene.addItem(line)
         self._indicator = line
@@ -469,8 +470,8 @@ class ScaleTool(BaseTool):
         }
         for name, (hx, hy) in positions.items():
             h_item = QGraphicsRectItem(hx, hy, hs, hs)
-            h_item.setBrush(QBrush(QColor("#FFFFFF")))
-            h_item.setPen(QPen(QColor("#4A9EFF"), 1.5))
+            h_item.setBrush(QBrush(C.SCALE_HANDLE_BG))
+            h_item.setPen(QPen(C.SCALE_HANDLE_FG, 1.5))
             h_item.setZValue(9998)
             h_item.setData(0, f"handle:{name}")
             ctx.scene.addItem(h_item)

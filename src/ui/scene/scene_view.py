@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QGraphicsView, QGraphicsScene, QGraphicsItem,
 from domain.models import ObjectType
 from rendering.scene_renderer import SceneRenderer, SceneItemRegistry
 from tools.tool_manager import ToolManager, ToolContext
+from ui.constants import C, menu_stylesheet
 
 if TYPE_CHECKING:
     from state.editor_store import EditorStore
@@ -40,7 +41,7 @@ class SelectionOverlay(QGraphicsRectItem):
     def __init__(self):
         super().__init__()
         self.setZValue(9999)
-        self.setPen(QPen(QColor("#4A9EFF"), 1.5, Qt.DashLine))
+        self.setPen(QPen(C.SELECTION_BOX, 1.5, Qt.DashLine))
         self.setBrush(QBrush(Qt.transparent))
         self.setFlag(QGraphicsItem.ItemIsSelectable, False)
         self.setFlag(QGraphicsItem.ItemIsMovable, False)
@@ -117,7 +118,7 @@ class SceneView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
-        self.setBackgroundBrush(QBrush(QColor("#2D2D3A")))
+        self.setBackgroundBrush(QBrush(C.SCENE_BG))
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         # Большой scene rect — чтобы было куда двигаться
@@ -348,16 +349,7 @@ class SceneView(QGraphicsView):
                      and bool(i.flags() & QGraphicsItem.ItemIsSelectable)]
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: #252535; color: #CCCCDD;
-                border: 1px solid #3A3A5A;
-                font-size: 12px; padding: 4px;
-            }
-            QMenu::item { padding: 5px 20px 5px 12px; border-radius: 3px; }
-            QMenu::item:selected { background: #3A4A6A; }
-            QMenu::separator { height: 1px; background: #3A3A5A; margin: 3px 6px; }
-        """)
+        menu.setStyleSheet(menu_stylesheet())
 
         if clickable:
             obj_id = self._registry.get_id(clickable[0])

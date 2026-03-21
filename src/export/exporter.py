@@ -8,6 +8,7 @@ from PySide6.QtGui import (QImage, QPainter, QColor, QBrush, QPen,
                             QFont, QPixmap, QFontMetrics)
 from domain.models import (CanvasState, ObjectState, ObjectType,
                             TextPayload, ImagePayload, StyleState)
+from ui.constants import C
 
 
 class CanvasExporter:
@@ -99,8 +100,8 @@ class CanvasExporter:
                     painter.restore()
                     return
             # Placeholder
-            painter.setBrush(QBrush(QColor("#CCCCCC")))
-            painter.setPen(QPen(QColor("#888888"), 2))
+            painter.setBrush(QBrush(C.PLACEHOLDER_FILL))
+            painter.setPen(QPen(C.PLACEHOLDER_STROKE, 2))
             painter.drawRect(rect)
             painter.drawLine(rect.topLeft(), rect.bottomRight())
             painter.drawLine(rect.topRight(), rect.bottomLeft())

@@ -33,6 +33,7 @@ from tools.tool_manager import (ToolManager, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE)
 from ui.scene.scene_view import SceneView
 from ui.panels.element_tree_panel import ElementTreePanel
 from ui.panels.properties_panel import PropertiesPanel
+from ui.constants import C, menu_stylesheet
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +396,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Canvas Editor")
         self.resize(1480, 920)
 
-        # Apply theme before building UI
+        # Apply theme before building UI — обновляем C и stylesheet
+        t = THEMES.get(_current_theme, THEMES["Dark"])
+        C.set_theme(t)
         QApplication.instance().setStyleSheet(
             build_stylesheet(_current_theme))
 
@@ -805,6 +808,8 @@ class MainWindow(QMainWindow):
     def _apply_theme(self, theme_name: str):
         global _current_theme
         _current_theme = theme_name
+        t = THEMES.get(theme_name, THEMES["Dark"])
+        C.set_theme(t)   # обновляем QColor-константы
         QApplication.instance().setStyleSheet(build_stylesheet(theme_name))
 
     def _apply_hotkeys(self):
