@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from domain.models import ObjectType, ObjectState, CanvasState
 from ui.constants import C, ICONS, OBJECT_COLORS, LAYER, menu_stylesheet
+from ui.icons import get_pixmap
 
 if TYPE_CHECKING:
     from state.editor_store import EditorStore
@@ -253,10 +254,11 @@ class LayerTreeWidget(QWidget):
 
                 # Icon + name
                 ix = tx + TOGGLE_W + 2
-                p.setFont(QFont("Segoe UI", 10))
-                p.setPen(QPen(C.TEXT_DIM))
-                p.drawText(QRect(ix, y, ICON_W, ITEM_H),
-                           Qt.AlignVCenter | Qt.AlignLeft, "🎨")
+                icon_sz  = 14
+                icon_top = y + (ITEM_H - icon_sz) // 2
+                pix_canvas = get_pixmap("canvas_node", icon_sz,
+                                        C.ACCENT if active else C.TEXT_DIM)
+                p.drawPixmap(ix + 1, icon_top, pix_canvas)
 
                 p.setFont(font_bold if active else font)
                 color = C.TEXT_CANVAS if active else C.TEXT_CANVAS_DIM
@@ -292,16 +294,22 @@ class LayerTreeWidget(QWidget):
                     p.drawText(QRect(tx, y, TOGGLE_W, ITEM_H),
                                Qt.AlignVCenter | Qt.AlignLeft, arrow)
 
-                # Type icon
+                # Type icon — SVG с цветом типа объекта
                 ix = tx + TOGGLE_W + 2
-                icon  = ICONS.get(obj.type)
-                icolor = OBJECT_COLORS.get(obj.type)
-                if obj.locked:
-                    icolor = C.TEXT_MUTED
-                p.setFont(QFont("Segoe UI", 10))
-                p.setPen(QPen(icolor))
-                p.drawText(QRect(ix, y, ICON_W, ITEM_H),
-                           Qt.AlignVCenter | Qt.AlignLeft, icon)
+                icon_sz  = 14
+                icon_top = y + (ITEM_H - icon_sz) // 2
+                _type_svg_map = {
+                    "rect":    "rect",
+                    "ellipse": "ellipse",
+                    "text":    "text",
+                    "image":   "image",
+                    "bezier":  "bezier",
+                    "group":   "group",
+                }
+                svg_name = _type_svg_map.get(obj.type.value, "rect")
+                icolor   = C.TEXT_MUTED if obj.locked else OBJECT_COLORS.get(obj.type)
+                pix_obj  = get_pixmap(svg_name, icon_sz, icolor)
+                p.drawPixmap(ix + 1, icon_top, pix_obj)
 
                 # Name
                 nx = ix + ICON_W + 2
@@ -312,14 +320,30 @@ class LayerTreeWidget(QWidget):
                 p.setPen(QPen(name_color))
 
                 name = obj.name
-                badges = ""
-                if not obj.visible: badges += " 👁"
-                if obj.locked:      badges += " 🔒"
-
-                p.drawText(QRect(nx, y, self.width() - nx - 4, ITEM_H),
+                # Draw name
+                name_w = self.width() - nx - 4
+                badge_w = 0
+                badge_sz = 12
+                # Reserve space for badges on the right
+                if not obj.visible or obj.locked:
+                    badge_w = (badge_sz + 2) * (
+                        (0 if obj.visible else 1) + (1 if obj.locked else 0))
+                p.drawText(QRect(nx, y, name_w - badge_w - 4, ITEM_H),
                            Qt.AlignVCenter | Qt.AlignLeft,
-                           fm.elidedText(name + badges, Qt.ElideRight,
-                                         self.width() - nx - 8))
+                           fm.elidedText(name, Qt.ElideRight,
+                                         name_w - badge_w - 8))
+
+                # Badge icons (right side)
+                bx = self.width() - 4
+                badge_top = y + (ITEM_H - badge_sz) // 2
+                if obj.locked:
+                    bx -= badge_sz + 2
+                    pix_lock = get_pixmap("locked", badge_sz, C.TEXT_DIM)
+                    p.drawPixmap(bx, badge_top, pix_lock)
+                if not obj.visible:
+                    bx -= badge_sz + 2
+                    pix_vis = get_pixmap("hidden", badge_sz, C.TEXT_DIM)
+                    p.drawPixmap(bx, badge_top, pix_vis)
 
         # Drop indicator
         dt = self._drop_target

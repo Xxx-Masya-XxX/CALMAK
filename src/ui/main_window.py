@@ -36,6 +36,7 @@ from ui.panels.properties_panel import PropertiesPanel
 from ui.constants import C, menu_stylesheet
 from ui.theme import THEMES, build_stylesheet, theme_manager
 from ui.context_toolbar import ContextToolbarManager
+from ui.icons import get_icon
 
 
 
@@ -255,6 +256,10 @@ class MainWindow(QMainWindow):
     # ---- Build UI ----------------------------------------------------------
 
     def _build_ui(self):
+        # Подписываем кеш иконок на смену темы (автосброс)
+        from ui.icons import setup_theme_auto_refresh
+        setup_theme_auto_refresh()
+
         self._setup_menu()
         self._setup_toolbars()   # ← QToolBar (перемещаемые)
         self._setup_docks()      # ← Layers + Properties
@@ -372,53 +377,59 @@ class MainWindow(QMainWindow):
         tb.setObjectName("tb_file")
         tb.setMovable(True)
         tb.setFloatable(True)
-        tb.setIconSize(QSize(18, 18))
-        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        tb.setIconSize(QSize(20, 20))
+        tb.setToolButtonStyle(Qt.ToolButtonIconOnly)   # только иконки
         self.addToolBar(Qt.TopToolBarArea, tb)
 
-        def add(icon, label, tip, slot, checkable=False):
-            a = QAction(icon + "  " + label, self)
+        def add_svg(icon_name: str, tip: str, slot,
+                    checkable: bool = False) -> QAction:
+            a = QAction(self)
+            a.setIcon(get_icon(icon_name, 20))
             a.setToolTip(tip)
             a.setCheckable(checkable)
             a.triggered.connect(slot)
             tb.addAction(a)
             return a
 
-        add("🆕", "New",    "New document  (Ctrl+N)",
-            lambda: self._controller.new_document(self))
-        add("📂", "Open",   "Open project  (Ctrl+O)",
-            lambda: self._controller.load_document(self))
-        add("💾", "Save",   "Save project  (Ctrl+S)",
-            lambda: self._controller.save_document(self))
-        add("📤", "Export", "Export canvas  (Ctrl+E)",
-            lambda: self._controller.export_canvas(self))
+        add_svg("new",    "New document  (Ctrl+N)",
+                lambda: self._controller.new_document(self))
+        add_svg("open",   "Open project  (Ctrl+O)",
+                lambda: self._controller.load_document(self))
+        add_svg("save",   "Save project  (Ctrl+S)",
+                lambda: self._controller.save_document(self))
+        add_svg("export", "Export canvas  (Ctrl+E)",
+                lambda: self._controller.export_canvas(self))
         tb.addSeparator()
 
-        self._undo_action = add("↩", "Undo", "Undo  (Ctrl+Z)",
-                                self._controller.undo)
-        self._redo_action = add("↪", "Redo", "Redo  (Ctrl+Shift+Z)",
-                                self._controller.redo)
+        self._undo_action = add_svg("undo", "Undo  (Ctrl+Z)",
+                                    self._controller.undo)
+        self._redo_action = add_svg("redo", "Redo  (Ctrl+Shift+Z)",
+                                    self._controller.redo)
         self._undo_action.setEnabled(False)
         self._redo_action.setEnabled(False)
         tb.addSeparator()
 
-        # Canvas selector
+        # Canvas selector (остаётся с текстом — это комбобокс)
         self._canvas_combo = QComboBox()
         self._canvas_combo.setMinimumWidth(150)
         self._canvas_combo.setMaximumWidth(220)
         self._canvas_combo.currentIndexChanged.connect(self._on_canvas_combo)
         tb.addWidget(self._canvas_combo)
 
-        add_canvas = QAction("➕  Add Canvas", self)
-        add_canvas.setToolTip("Add new canvas")
-        add_canvas.triggered.connect(self._add_canvas_dialog)
-        tb.addAction(add_canvas)
+        self._add_canvas_action = add_svg(
+            "add_canvas", "Add new canvas", self._add_canvas_dialog)
 
         tb.addSeparator()
-        settings_act = QAction("⚙  Settings", self)
-        settings_act.setToolTip("Open settings  (Ctrl+,)")
-        settings_act.triggered.connect(self._open_settings)
-        tb.addAction(settings_act)
+        self._settings_action = add_svg(
+            "settings", "Settings  (Ctrl+,)", self._open_settings)
+
+        # Сохраняем все svg-actions для рефреша при смене темы
+        self._file_toolbar_actions = {
+            "new":        tb.actions()[0],
+            "open":       tb.actions()[1],
+            "save":       tb.actions()[2],
+            "export":     tb.actions()[3],
+        }
 
     # ---- Tools toolbar (Move / Rotate / Scale)
 
@@ -427,16 +438,16 @@ class MainWindow(QMainWindow):
         tb.setObjectName("tb_tools")
         tb.setMovable(True)
         tb.setFloatable(True)
-        tb.setIconSize(QSize(18, 18))
-        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        tb.setIconSize(QSize(20, 20))
+        tb.setToolButtonStyle(Qt.ToolButtonIconOnly)  # только иконки
         self.addToolBar(Qt.TopToolBarArea, tb)
 
-        # SELECT removed — Move tool handles selection too
+        # (tool_id, icon_name, label, hotkey_id)
         tools = [
-            (TOOL_MOVE,   "✥", "Move",   "tool_move"),
-            (TOOL_ROTATE, "↻", "Rotate", "tool_rotate"),
-            (TOOL_SCALE,  "⤡", "Scale",  "tool_scale"),
-            (TOOL_BEZIER, "〜", "Bezier Path", "tool_bezier"),
+            (TOOL_MOVE,   "move",     "Move",        "tool_move"),
+            (TOOL_ROTATE, "rotate",   "Rotate",      "tool_rotate"),
+            (TOOL_SCALE,  "scale",    "Scale",       "tool_scale"),
+            (TOOL_BEZIER, "bezier",   "Bezier Path", "tool_bezier"),
         ]
 
         self._tool_actions: dict[str, QAction] = {}
@@ -447,10 +458,11 @@ class MainWindow(QMainWindow):
             TOOL_BEZIER: "tool_bezier",
         }
 
-        for tool_id, icon, label, hk_id in tools:
+        for tool_id, icon_name, label, hk_id in tools:
             default_key = DEFAULT_HOTKEYS.get(hk_id, "")
             tip = f"{label}  ({default_key})" if default_key else label
-            a = QAction(f"{icon}  {label}", self)
+            a = QAction(self)
+            a.setIcon(get_icon(icon_name, 20))
             a.setToolTip(tip)
             a.setCheckable(True)
             a.setData(tool_id)
@@ -463,10 +475,17 @@ class MainWindow(QMainWindow):
         self._tool_manager.tool_changed.connect(self._on_tool_changed)
 
         tb.addSeparator()
-        tb.addAction(self._make_action("⬆  Forward", "Bring Forward  (Ctrl+])",
-                                       self._bring_forward))
-        tb.addAction(self._make_action("⬇  Backward", "Send Backward  (Ctrl+[)",
-                                       self._send_backward))
+        af = QAction(self)
+        af.setIcon(get_icon("forward", 20))
+        af.setToolTip("Bring Forward  (Ctrl+])")
+        af.triggered.connect(self._bring_forward)
+        tb.addAction(af)
+
+        ab = QAction(self)
+        ab.setIcon(get_icon("backward", 20))
+        ab.setToolTip("Send Backward  (Ctrl+[)")
+        ab.triggered.connect(self._send_backward)
+        tb.addAction(ab)
 
     # ---- Create toolbar
 
@@ -475,25 +494,33 @@ class MainWindow(QMainWindow):
         tb.setObjectName("tb_create")
         tb.setMovable(True)
         tb.setFloatable(True)
-        tb.setIconSize(QSize(18, 18))
-        tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        tb.setIconSize(QSize(20, 20))
+        tb.setToolButtonStyle(Qt.ToolButtonIconOnly)  # только иконки, без текста
         self.addToolBar(Qt.TopToolBarArea, tb)
 
         self._create_actions: dict[str, QAction] = {}
+        # Store labels for tooltip generation in _apply_hotkeys
+        self._create_labels: dict[str, str] = {}
 
+        # (action_id, icon_name, display_label)
         objects = [
-            ("add_rect",     "▭", "Rectangle"),
-            ("add_ellipse",  "◯", "Ellipse"),
-            ("add_triangle", "△", "Triangle"),
-            ("add_text",     "T", "Text"),
-            ("add_image",    "🖼","Image"),
-            ("add_bezier",   "〜","Bezier"),
+            ("add_rect",     "rect",     "Rectangle"),
+            ("add_ellipse",  "ellipse",  "Ellipse"),
+            ("add_triangle", "triangle", "Triangle"),
+            ("add_text",     "text",     "Text"),
+            ("add_image",    "image",    "Image"),
+            ("add_bezier",   "bezier",   "Bezier Curve"),
         ]
-        for action_id, icon, label in objects:
+        for action_id, icon_name, label in objects:
             slot = getattr(self, f"_{action_id}_action")
-            a = self._make_action(f"{icon}  {label}", f"Add {label}", slot)
+            a = QAction(self)
+            a.setIcon(get_icon(icon_name, 20))
+            # Tooltip will be set properly by _apply_hotkeys after build
+            a.setToolTip(f"Add {label}")
+            a.triggered.connect(slot)
             tb.addAction(a)
             self._create_actions[action_id] = a
+            self._create_labels[action_id] = f"Add {label}"
 
     def _make_action(self, text: str, tip: str, slot) -> QAction:
         a = QAction(text, self)
@@ -662,26 +689,94 @@ class MainWindow(QMainWindow):
 
     def _apply_theme(self, theme_name: str):
         theme_manager.apply(theme_name)
+        self._refresh_toolbar_icons()
+
+    def _refresh_toolbar_icons(self):
+        """Перерисовывает SVG иконки при смене темы.
+        Кеш уже сброшен автоматически через theme_manager.theme_changed.
+        get_icon() читает новый C.TEXT и рендерит с правильным цветом.
+        """
+
+        # File toolbar
+        file_icon_map = [
+            ("new",        lambda: self._controller.new_document(self)),
+            ("open",       lambda: self._controller.load_document(self)),
+            ("save",       lambda: self._controller.save_document(self)),
+            ("export",     lambda: self._controller.export_canvas(self)),
+            ("undo",       None),
+            ("redo",       None),
+            ("add_canvas", None),
+            ("settings",   None),
+        ]
+        # Update undo/redo specifically
+        if hasattr(self, '_undo_action'):
+            self._undo_action.setIcon(get_icon("undo", 20))
+        if hasattr(self, '_redo_action'):
+            self._redo_action.setIcon(get_icon("redo", 20))
+        if hasattr(self, '_add_canvas_action'):
+            self._add_canvas_action.setIcon(get_icon("add_canvas", 20))
+        if hasattr(self, '_settings_action'):
+            self._settings_action.setIcon(get_icon("settings", 20))
+
+        # File toolbar first 4 actions (new/open/save/export)
+        from PySide6.QtWidgets import QToolBar
+        for tb in self.findChildren(QToolBar):
+            if tb.objectName() == "tb_file":
+                acts = [a for a in tb.actions() if not a.isSeparator()]
+                for i, name in enumerate(["new","open","save","export"]):
+                    if i < len(acts):
+                        acts[i].setIcon(get_icon(name, 20))
+                break
+
+        # Create toolbar
+        create_icon_map = {
+            "add_rect":     "rect",
+            "add_ellipse":  "ellipse",
+            "add_triangle": "triangle",
+            "add_text":     "text",
+            "add_image":    "image",
+            "add_bezier":   "bezier",
+        }
+        for action_id, icon_name in create_icon_map.items():
+            a = self._create_actions.get(action_id)
+            if a:
+                a.setIcon(get_icon(icon_name, 20))
+
+        # Tools toolbar
+        tool_icon_map = {
+            TOOL_MOVE:   "move",
+            TOOL_ROTATE: "rotate",
+            TOOL_SCALE:  "scale",
+            TOOL_BEZIER: "bezier",
+        }
+        for tool_id, icon_name in tool_icon_map.items():
+            a = self._tool_actions.get(tool_id)
+            if a:
+                a.setIcon(get_icon(icon_name, 20))
+
+        # Refresh tree panel icons too
+        if hasattr(self, '_tree_panel'):
+            self._tree_panel._tree.update()
 
     def _apply_hotkeys(self):
         """Назначает горячие клавиши из self._hotkeys всем действиям."""
-        # Create object actions
-        create_map = {
-            "add_rect":     self._create_actions.get("add_rect"),
-            "add_ellipse":  self._create_actions.get("add_ellipse"),
-            "add_triangle": self._create_actions.get("add_triangle"),
-            "add_text":     self._create_actions.get("add_text"),
-            "add_image":    self._create_actions.get("add_image"),
-        }
-        for action_id, action in create_map.items():
+        # Create object actions — build rich tooltip: "Add Rectangle  (Ctrl+R)"
+        create_ids = [
+            "add_rect", "add_ellipse", "add_triangle",
+            "add_text", "add_image",  "add_bezier",
+        ]
+        for action_id in create_ids:
+            action = self._create_actions.get(action_id)
             if action is None:
                 continue
-            seq = self._hotkeys.get(action_id, "")
-            action.setShortcut(QKeySequence(seq) if seq else QKeySequence())
-            # Update tooltip to show shortcut
+            seq     = self._hotkeys.get(action_id, "")
             seq_str = QKeySequence(seq).toString() if seq else ""
-            label = action.text().strip()
-            action.setToolTip(f"{label}  ({seq_str})" if seq_str else label)
+            action.setShortcut(QKeySequence(seq) if seq else QKeySequence())
+            # Use stored label — action.text() is empty for icon-only buttons
+            base_label = getattr(self, "_create_labels", {}).get(
+                action_id, action_id.replace("_", " ").title())
+            tooltip = f"{base_label}  ({seq_str})" if seq_str else base_label
+            action.setToolTip(tooltip)
 
         # Tool actions
         tool_map = {
