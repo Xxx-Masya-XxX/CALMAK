@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
                                 QGraphicsEllipseItem, QGraphicsLineItem,
                                 QRubberBand, QAbstractItemView)
 from ui.constants import C
+from tools.bezier_tool import BezierTool, TOOL_BEZIER
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QRect
@@ -43,6 +44,7 @@ TOOL_SELECT = "select"
 TOOL_MOVE   = "move"
 TOOL_ROTATE = "rotate"
 TOOL_SCALE  = "scale"
+TOOL_BEZIER = "bezier"
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +614,7 @@ class ToolManager(QObject):
             TOOL_MOVE:   MoveTool(),
             TOOL_ROTATE: RotateTool(),
             TOOL_SCALE:  ScaleTool(),
+            TOOL_BEZIER: BezierTool(),
         }
         self._active_id  = TOOL_MOVE
         self._ctx: ToolContext | None = None
@@ -648,6 +651,14 @@ class ToolManager(QObject):
     def mouse_press(self, event: QMouseEvent):
         if self._ctx:
             self.active_tool.mouse_press(event, self._ctx)
+
+    def mouse_double_click(self, event: QMouseEvent):
+        if self._ctx and hasattr(self.active_tool, "mouse_double_click"):
+            self.active_tool.mouse_double_click(event, self._ctx)
+
+    def key_press(self, event):
+        if self._ctx and hasattr(self.active_tool, "key_press"):
+            self.active_tool.key_press(event, self._ctx)
 
     def mouse_move(self, event: QMouseEvent):
         if self._ctx:

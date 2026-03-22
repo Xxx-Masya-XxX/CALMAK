@@ -267,6 +267,12 @@ class UpdatePropertiesCommand(Command):
                 from domain.models import ImagePayload
                 if isinstance(obj.payload, ImagePayload):
                     obj.payload.source_path = value
+            elif key.startswith("payload_p") and len(key) == 11:
+                # Bezier control points: payload_p0x, payload_p1y, etc.
+                from domain.models import BezierPayload
+                if isinstance(obj.payload, BezierPayload):
+                    attr = key[8:]   # "p0x", "p1y", etc.
+                    setattr(obj.payload, attr, value)
 
     def _snapshot(self, obj: "ObjectState") -> dict:
         snap = {}
@@ -288,6 +294,10 @@ class UpdatePropertiesCommand(Command):
                 from domain.models import ImagePayload
                 if isinstance(obj.payload, ImagePayload):
                     snap[key] = obj.payload.source_path
+            elif key.startswith("payload_p") and len(key) == 11:
+                from domain.models import BezierPayload
+                if isinstance(obj.payload, BezierPayload):
+                    snap[key] = getattr(obj.payload, key[8:], 0.0)
         return snap
 
     def execute(self, doc: "DocumentState"):

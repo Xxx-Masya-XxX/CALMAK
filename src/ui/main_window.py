@@ -29,12 +29,13 @@ from PySide6.QtWidgets import (
 
 from state.editor_store import EditorStore
 from controllers.editor_controller import EditorController
-from tools.tool_manager import (ToolManager, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE)
+from tools.tool_manager import (ToolManager, TOOL_MOVE, TOOL_ROTATE, TOOL_SCALE, TOOL_BEZIER)
 from ui.scene.scene_view import SceneView
 from ui.panels.element_tree_panel import ElementTreePanel
 from ui.panels.properties_panel import PropertiesPanel
 from ui.constants import C, menu_stylesheet
 from ui.theme import THEMES, build_stylesheet, theme_manager
+from ui.context_toolbar import ContextToolbarManager
 
 
 
@@ -49,10 +50,12 @@ DEFAULT_HOTKEYS: dict[str, str] = {
     "add_triangle": "",
     "add_text":     "",
     "add_image":    "",
+    "add_bezier":   "",
     # Tools (defaults provided)
     "tool_move":    "V",
     "tool_rotate":  "R",
     "tool_scale":   "E",
+    "tool_bezier":  "B",
 }
 
 
@@ -153,11 +156,13 @@ class SettingsDialog(QDialog):
             "tool_move":    "Tool: Move",
             "tool_rotate":  "Tool: Rotate",
             "tool_scale":   "Tool: Scale",
+            "tool_bezier":  "Tool: Bezier Path",
             "add_rect":     "Add Rectangle",
             "add_ellipse":  "Add Ellipse",
             "add_triangle": "Add Triangle",
             "add_text":     "Add Text",
             "add_image":    "Add Image",
+            "add_bezier":   "Add Bezier Curve",
         }
         # Resize table to fit all actions
         self._hotkey_table.setRowCount(len(_labels))
@@ -431,6 +436,7 @@ class MainWindow(QMainWindow):
             (TOOL_MOVE,   "✥", "Move",   "tool_move"),
             (TOOL_ROTATE, "↻", "Rotate", "tool_rotate"),
             (TOOL_SCALE,  "⤡", "Scale",  "tool_scale"),
+            (TOOL_BEZIER, "〜", "Bezier Path", "tool_bezier"),
         ]
 
         self._tool_actions: dict[str, QAction] = {}
@@ -438,6 +444,7 @@ class MainWindow(QMainWindow):
             TOOL_MOVE:   "tool_move",
             TOOL_ROTATE: "tool_rotate",
             TOOL_SCALE:  "tool_scale",
+            TOOL_BEZIER: "tool_bezier",
         }
 
         for tool_id, icon, label, hk_id in tools:
@@ -480,6 +487,7 @@ class MainWindow(QMainWindow):
             ("add_triangle", "△", "Triangle"),
             ("add_text",     "T", "Text"),
             ("add_image",    "🖼","Image"),
+            ("add_bezier",   "〜","Bezier"),
         ]
         for action_id, icon, label in objects:
             slot = getattr(self, f"_{action_id}_action")
@@ -500,6 +508,9 @@ class MainWindow(QMainWindow):
     def _add_text_action(self):     self._controller.add_text()
     def _add_image_action(self):
         self._controller.add_image_from_dialog(self)
+
+    def _add_bezier_action(self):
+        self._controller.add_bezier()
 
     # ---- Docks -------------------------------------------------------------
 
@@ -526,7 +537,20 @@ class MainWindow(QMainWindow):
     def _setup_central(self):
         self._scene_view = SceneView(self._store, self._controller,
                                      self._tool_manager)
-        self.setCentralWidget(self._scene_view)
+
+        # Wrapper: context toolbar + scene
+        wrapper = QWidget()
+        wrapper.setObjectName("scene_wrapper")
+        vbox = QVBoxLayout(wrapper)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+
+        self._ctx_toolbar = ContextToolbarManager(
+            self._store, self._controller, self._tool_manager, wrapper)
+        vbox.addWidget(self._ctx_toolbar)
+        vbox.addWidget(self._scene_view)
+
+        self.setCentralWidget(wrapper)
         self._refresh_canvas_combo()
 
     # ---- Status bar --------------------------------------------------------
@@ -562,6 +586,8 @@ class MainWindow(QMainWindow):
     def _on_doc_changed(self):
         self._refresh_canvas_combo()
         self._update_status()
+        if hasattr(self, '_ctx_toolbar'):
+            self._ctx_toolbar.refresh_active()
 
     def _on_history_changed(self, can_undo: bool, can_redo: bool):
         self._undo_action.setEnabled(can_undo)
@@ -575,7 +601,8 @@ class MainWindow(QMainWindow):
     def _on_tool_changed(self, tool_id: str):
         for tid, act in self._tool_actions.items():
             act.setChecked(tid == tool_id)
-        names = {TOOL_MOVE: "Move", TOOL_ROTATE: "Rotate", TOOL_SCALE: "Scale"}
+        names = {TOOL_MOVE: "Move", TOOL_ROTATE: "Rotate",
+                 TOOL_SCALE: "Scale", TOOL_BEZIER: "Bezier Path"}
         self._tool_lbl.setText(f"  Tool: {names.get(tool_id, tool_id)}")
 
     def _update_zoom_label(self):
@@ -661,11 +688,13 @@ class MainWindow(QMainWindow):
             "tool_move":   self._tool_actions.get(TOOL_MOVE),
             "tool_rotate": self._tool_actions.get(TOOL_ROTATE),
             "tool_scale":  self._tool_actions.get(TOOL_SCALE),
+            "tool_bezier": self._tool_actions.get(TOOL_BEZIER),
         }
         tool_names = {
             "tool_move":   "Move",
             "tool_rotate": "Rotate",
             "tool_scale":  "Scale",
+            "tool_bezier": "Bezier Path",
         }
         for hk_id, action in tool_map.items():
             if action is None:

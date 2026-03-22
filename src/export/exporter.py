@@ -7,7 +7,9 @@ from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import (QImage, QPainter, QColor, QBrush, QPen,
                             QFont, QPixmap, QFontMetrics)
 from domain.models import (CanvasState, ObjectState, ObjectType,
-                            TextPayload, ImagePayload, StyleState)
+                            TextPayload, ImagePayload, StyleState,
+                            BezierPayload)
+from PySide6.QtCore import Qt
 from ui.constants import C
 
 
@@ -105,5 +107,34 @@ class CanvasExporter:
             painter.drawRect(rect)
             painter.drawLine(rect.topLeft(), rect.bottomRight())
             painter.drawLine(rect.topRight(), rect.bottomLeft())
+
+        elif obj.type == ObjectType.BEZIER:
+            from PySide6.QtGui import QPainterPath
+            from PySide6.QtCore import QPointF as QF
+            payload = obj.payload
+            if isinstance(payload, BezierPayload) and payload.points:
+                pts  = payload.points
+                path = QPainterPath(QF(pts[0].x - t.x, pts[0].y - t.y))
+                for i in range(1, len(pts)):
+                    prev = pts[i - 1]; cur = pts[i]
+                    path.cubicTo(
+                        QF(prev.cx2 - t.x, prev.cy2 - t.y),
+                        QF(cur.cx1  - t.x, cur.cy1  - t.y),
+                        QF(cur.x    - t.x, cur.y    - t.y),
+                    )
+                if payload.closed and len(pts) > 1:
+                    first = pts[0]; last = pts[-1]
+                    path.cubicTo(
+                        QF(last.cx2  - t.x, last.cy2  - t.y),
+                        QF(first.cx1 - t.x, first.cy1 - t.y),
+                        QF(first.x   - t.x, first.y   - t.y),
+                    )
+                    path.closeSubpath()
+                painter.setBrush(QBrush(_color(s.fill_color)))
+                pen = QPen(_color(s.stroke_color), s.stroke_width)
+                pen.setCapStyle(Qt.RoundCap)
+                pen.setJoinStyle(Qt.RoundJoin)
+                painter.setPen(pen)
+                painter.drawPath(path)
 
         painter.restore()

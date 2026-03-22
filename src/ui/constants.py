@@ -34,6 +34,7 @@ class ICONS:
         ObjectType.TEXT:    "T",
         ObjectType.IMAGE:   "🖼",
         ObjectType.GROUP:   "📁",
+        ObjectType.BEZIER:  "〜",
     }
     CANVAS = "🎨"
     CANVAS_ACTIVE = "▶"
@@ -51,6 +52,7 @@ class OBJECT_COLORS:
         ObjectType.TEXT:    "#4AE27A",
         ObjectType.IMAGE:   "#E2A84A",
         ObjectType.GROUP:   "#A84AE2",
+        ObjectType.BEZIER:  "#E2C44A",
     }
     FALLBACK = "#CCCCCC"
 

@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (QGraphicsScene, QGraphicsItem,
                                 QGraphicsItemGroup, QGraphicsPathItem)
 
 from domain.models import (ObjectState, ObjectType, CanvasState,
-                            TextPayload, ImagePayload, StyleState)
+                            TextPayload, ImagePayload, StyleState,
+                            BezierPayload, BezierPoint)
 from ui.constants import C
 
 if TYPE_CHECKING:
@@ -124,6 +125,44 @@ def _apply_style_image(item: QGraphicsPixmapItem, obj: ObjectState):
     painter.drawRect(1, 1, int(t.width) - 2, int(t.height) - 2)
     painter.end()
     item.setPixmap(pix)
+
+
+def _apply_style_bezier(item: "QGraphicsPathItem", obj: ObjectState):
+    """Рисует путь из BezierPayload.points в абсолютных координатах сцены."""
+    from PySide6.QtGui import QPainterPath
+    s       = obj.style
+    payload = obj.payload
+    if not isinstance(payload, BezierPayload) or not payload.points:
+        return
+
+    pts  = payload.points
+    path = QPainterPath(QPointF(pts[0].x, pts[0].y))
+
+    for i in range(1, len(pts)):
+        prev = pts[i - 1]
+        cur  = pts[i]
+        path.cubicTo(
+            QPointF(prev.cx2, prev.cy2),
+            QPointF(cur.cx1,  cur.cy1),
+            QPointF(cur.x,    cur.y),
+        )
+
+    if payload.closed and len(pts) > 1:
+        first = pts[0]; last = pts[-1]
+        path.cubicTo(
+            QPointF(last.cx2,  last.cy2),
+            QPointF(first.cx1, first.cy1),
+            QPointF(first.x,   first.y),
+        )
+        path.closeSubpath()
+
+    item.setPath(path)
+    item.setBrush(QBrush(_color(s.fill_color)))
+    pen = QPen(_color(s.stroke_color), s.stroke_width)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    item.setPen(pen)
+
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +292,15 @@ class SceneRenderer:
             item.setBrush(QBrush(Qt.transparent))
             item.setPen(QPen(C.PLACEHOLDER_STROKE, 1, Qt.DashLine))
             _apply_transform(item, obj)
+            return item
+
+        elif obj.type == ObjectType.BEZIER:
+            from PySide6.QtWidgets import QGraphicsPathItem
+            item = QGraphicsPathItem()
+            _apply_style_bezier(item, obj)
+            item.setPos(0, 0)
+            item.setRotation(obj.transform.rotation)
+            item.setOpacity(obj.transform.opacity)
             return item
 
         return None

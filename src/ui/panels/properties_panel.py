@@ -465,6 +465,9 @@ class PropertiesPanel(QWidget):
         elif obj.type == ObjectType.IMAGE:
             self._obj_layout.addWidget(SectionHeader("Image"))
             self._add_image(obj)
+        elif obj.type == ObjectType.BEZIER:
+            self._obj_layout.addWidget(SectionHeader("Bezier Curve"))
+            self._add_bezier(obj)
 
     # -----------------------------------------------------------------------
     # Common
@@ -613,6 +616,85 @@ class PropertiesPanel(QWidget):
     # -----------------------------------------------------------------------
     # Image
     # -----------------------------------------------------------------------
+
+    def _add_bezier(self, obj: ObjectState):
+        from domain.models import BezierPayload
+        payload = obj.payload
+        if not isinstance(payload, BezierPayload):
+            return
+
+        s = obj.style
+
+        # Stroke color + width
+        stroke = ColorButton(s.stroke_color)
+        self._pick_color(stroke, "style.stroke_color")
+        self._obj_layout.addWidget(PropRow("Color", stroke))
+
+        sw = _spin(0.5, 50)
+        sw.setValue(s.stroke_width)
+        sw.valueChanged.connect(lambda v: self._commit("style.stroke_width", v))
+        self._obj_layout.addWidget(PropRow("Width", sw))
+
+        # Closed toggle
+        from PySide6.QtWidgets import QCheckBox
+        closed_cb = QCheckBox("Closed path")
+        closed_cb.setChecked(payload.closed)
+        closed_cb.checkStateChanged.connect(
+            lambda state: self._commit_bezier_closed(obj.id, state))
+        self._obj_layout.addWidget(closed_cb)
+
+        # Point info (read-only summary — editing done on canvas with BezierTool)
+        self._obj_layout.addWidget(SectionHeader("Points"))
+        n = len(payload.points)
+        pts_label = "point" if n == 1 else "points"
+        info = QLabel(
+            f"{n} anchor {pts_label}\n"
+            "Select \u301c Bezier tool to edit on canvas.\n"
+            "Click=add/select  |  Delete=remove  |  Shift+click=corner/smooth"
+        )
+        info.setStyleSheet("font-size:10px;padding:4px 8px;")
+        info.setWordWrap(True)
+        self._obj_layout.addWidget(info)
+
+        # List anchor positions (read-only)
+        for i, pt in enumerate(payload.points):
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(8, 1, 8, 1)
+            rl.setSpacing(4)
+            lbl = QLabel(f"P{i}")
+            lbl.setFixedWidth(24)
+            lbl.setStyleSheet("font-size:10px;")
+            sx = _spin(-99999, 99999, dec=1)
+            sx.setValue(pt.x)
+            sx.valueChanged.connect(
+                lambda v, idx=i: self._commit_bezier_point(obj.id, idx, "x", v))
+            sy = _spin(-99999, 99999, dec=1)
+            sy.setValue(pt.y)
+            sy.valueChanged.connect(
+                lambda v, idx=i: self._commit_bezier_point(obj.id, idx, "y", v))
+            rl.addWidget(lbl)
+            rl.addWidget(QLabel("X")); rl.addWidget(sx, 1)
+            rl.addWidget(QLabel("Y")); rl.addWidget(sy, 1)
+            self._obj_layout.addWidget(row)
+
+    def _commit_bezier_closed(self, obj_id: str, state):
+        from PySide6.QtCore import Qt as _Qt
+        canvas = self._store.active_canvas
+        if not canvas: return
+        obj = canvas.objects.get(obj_id)
+        if not obj: return
+        obj.payload.closed = (state == _Qt.Checked)
+        self._store.document_changed.emit()
+
+    def _commit_bezier_point(self, obj_id: str, idx: int, axis: str, value: float):
+        if self._updating: return
+        canvas = self._store.active_canvas
+        if not canvas: return
+        obj = canvas.objects.get(obj_id)
+        if not obj or idx >= len(obj.payload.points): return
+        setattr(obj.payload.points[idx], axis, value)
+        self._store.document_changed.emit()
 
     def _add_image(self, obj: ObjectState):
         payload = obj.payload

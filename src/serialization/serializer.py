@@ -8,7 +8,7 @@ from domain.models import (
     DocumentState, CanvasState, ObjectState, ObjectType,
     Transform, StyleState,
     TextPayload, ImagePayload, ShapePayload, GroupPayload,
-    gen_id
+    BezierPayload, BezierPoint, gen_id
 )
 
 
@@ -84,6 +84,18 @@ class ProjectSerializer:
             payload_data = {"text": obj.payload.text}
         elif isinstance(obj.payload, ImagePayload):
             payload_data = {"source_path": obj.payload.source_path}
+        elif isinstance(obj.payload, BezierPayload):
+            p = obj.payload
+            payload_data = {
+                "closed": p.closed,
+                "points": [
+                    {"x": pt.x, "y": pt.y,
+                     "cx1": pt.cx1, "cy1": pt.cy1,
+                     "cx2": pt.cx2, "cy2": pt.cy2,
+                     "smooth": pt.smooth}
+                    for pt in p.points
+                ],
+            }
 
         return {
             "id": obj.id,
@@ -150,6 +162,21 @@ class ProjectSerializer:
             payload = TextPayload(text=p_data.get("text", ""))
         elif obj_type == ObjectType.IMAGE:
             payload = ImagePayload(source_path=p_data.get("source_path", ""))
+        elif obj_type == ObjectType.BEZIER:
+            from domain.models import BezierPoint
+            pts = [
+                BezierPoint(
+                    x=pt.get("x", 0), y=pt.get("y", 0),
+                    cx1=pt.get("cx1", 0), cy1=pt.get("cy1", 0),
+                    cx2=pt.get("cx2", 0), cy2=pt.get("cy2", 0),
+                    smooth=pt.get("smooth", True),
+                )
+                for pt in p_data.get("points", [])
+            ]
+            payload = BezierPayload(
+                points=pts,
+                closed=p_data.get("closed", False),
+            )
         elif obj_type == ObjectType.GROUP:
             payload = GroupPayload()
         else:

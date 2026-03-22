@@ -439,6 +439,9 @@ class SceneView(QGraphicsView):
             menu.exec(event.globalPos())
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
+        # Forward to active tool first (BezierTool uses double-click to finish)
+        self._tool_manager.mouse_double_click(event)
+
         pos_scene = self.mapToScene(event.pos())
         for item in self._scene.items(pos_scene):
             if item is self._overlay:
@@ -489,6 +492,11 @@ class SceneView(QGraphicsView):
     # -----------------------------------------------------------------------
 
     def keyPressEvent(self, event):
+        # Forward to active tool (BezierTool handles Delete, Escape, Enter)
+        self._tool_manager.key_press(event)
+        if event.isAccepted():
+            return
+
         step   = 10 if event.modifiers() & Qt.ShiftModifier else 1
         canvas = self._store.active_canvas
         ids    = list(self._store.selection.selected_ids)

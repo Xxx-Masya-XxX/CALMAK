@@ -23,6 +23,7 @@ class ObjectType(str, Enum):
     ELLIPSE  = "ellipse"
     TEXT     = "text"
     IMAGE    = "image"
+    BEZIER   = "bezier"
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +89,44 @@ class GroupPayload:
 @dataclass
 class ShapePayload:
     pass
+
+@dataclass
+class BezierPoint:
+    """
+    Одна точка полилинии Безье.
+      x, y      — позиция anchor-точки в абсолютных координатах сцены
+      cx1, cy1  — контрольная точка «до» (входящий касательный вектор)
+      cx2, cy2  — контрольная точка «после» (исходящий касательный вектор)
+      smooth    — симметричные ручки (перемещение одной отражает другую)
+    """
+    x:   float = 0.0
+    y:   float = 0.0
+    cx1: float = 0.0   # = x по умолчанию (совмещена с anchor)
+    cy1: float = 0.0
+    cx2: float = 0.0
+    cy2: float = 0.0
+    smooth: bool = True
+
+    def copy(self) -> "BezierPoint":
+        from copy import copy as _copy
+        return _copy(self)
+
+
+@dataclass
+class BezierPayload:
+    """
+    Произвольная кривая Безье из N точек в абсолютных координатах сцены.
+    Каждая точка — BezierPoint с anchor + две контрольные ручки.
+    closed — замкнуть контур.
+    """
+    points: list = field(default_factory=list)   # list[BezierPoint]
+    closed: bool  = False
+
+    def copy(self) -> "BezierPayload":
+        return BezierPayload(
+            points=[p.copy() for p in self.points],
+            closed=self.closed
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +209,28 @@ def make_group(name="Group", children: list[str] = None) -> ObjectState:
         id=gen_id(), type=ObjectType.GROUP, name=name,
         children_ids=children or [],
         payload=GroupPayload()
+    )
+    return obj
+
+def make_bezier(name="Bezier", x=100, y=100) -> ObjectState:
+    """Кривая Безье с двумя начальными точками в абсолютных координатах."""
+    p0 = BezierPoint(x=x,       y=y,
+                     cx1=x-40,  cy1=y,
+                     cx2=x+40,  cy2=y)
+    p1 = BezierPoint(x=x+160,   y=y,
+                     cx1=x+120, cy1=y,
+                     cx2=x+200, cy2=y)
+    obj = ObjectState(
+        id=gen_id(),
+        type=ObjectType.BEZIER,
+        name=name,
+        transform=Transform(x=x, y=y, width=1, height=1),
+        style=StyleState(
+            fill_color="transparent",
+            stroke_color="#E2904A",
+            stroke_width=2.5,
+        ),
+        payload=BezierPayload(points=[p0, p1]),
     )
     return obj
 

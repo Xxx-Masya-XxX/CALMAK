@@ -102,6 +102,18 @@ class EditorController(QObject):
         self.store._push_command(AddObjectCommand(cid, obj))
         self.select_one(obj.id)
 
+    def add_bezier(self, x=100, y=100, w=220, h=100):
+        from domain.models import make_bezier
+        cid = self._canvas_id()
+        if not cid:
+            return
+        canvas = self.store.active_canvas
+        n = sum(1 for o in canvas.objects.values()
+                if o.type == ObjectType.BEZIER) + 1
+        obj = make_bezier(f"Bezier {n}", x, y)
+        self.store._push_command(AddObjectCommand(cid, obj))
+        self.select_one(obj.id)
+
     def add_triangle(self, x=100, y=100, w=150, h=150):
         """Треугольник — path-объект (храним как rect с type=triangle)."""
         from domain.models import ObjectType, ObjectState, Transform, StyleState, ShapePayload, gen_id
